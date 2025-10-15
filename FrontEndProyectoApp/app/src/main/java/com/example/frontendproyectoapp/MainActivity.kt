@@ -61,6 +61,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        // 👉 Inicializar configuración de Gemini
+        com.example.frontendproyectoapp.config.GeminiConfig.initialize(this)
+
         // 👉 Crear canal de notificaciones
         createNotificationChannel()
 

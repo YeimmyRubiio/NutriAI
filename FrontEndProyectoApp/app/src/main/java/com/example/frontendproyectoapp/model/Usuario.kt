@@ -8,6 +8,7 @@ data class Usuario (
     val fechaNacimiento: String,
     val altura: Float = 0f,
     val peso: Float = 0f,
+    val sexo: String = "",
     val restriccionesDieta: String = "",
     val objetivosSalud: String = "",
     val nivelActividad: String = "",

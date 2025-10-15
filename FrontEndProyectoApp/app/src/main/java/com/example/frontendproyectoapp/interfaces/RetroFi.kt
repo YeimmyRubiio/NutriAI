@@ -7,7 +7,7 @@ import retrofit2.converter.gson.GsonConverterFactory
 
 object RetrofitClient {
 
-    private const val BASE_URL = "http://192.168.1.10:8080"
+    private const val BASE_URL = "http://192.168.20.151:8080"
     private const val USUARIO = "admin"
     private const val PASSWORD = "admin123"
 

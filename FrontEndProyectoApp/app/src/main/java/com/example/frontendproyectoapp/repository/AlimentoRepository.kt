@@ -83,4 +83,98 @@ class AlimentoRepository {
             throw Exception("Error al obtener unidades por nombre: ${response.code()} ${response.message()}")
         }
     }
+    
+    // Métodos para integración con NutriAI chatbot
+    
+    suspend fun agregarAlimentoDesdeChatbot(
+        idUsuario: Long,
+        nombreAlimento: String,
+        cantidad: String,
+        unidad: String,
+        momentoDelDia: String
+    ): Boolean {
+        try {
+            Log.d("AlimentoRepo", "→ Agregando alimento desde chatbot: $nombreAlimento")
+            
+            // Buscar el alimento por nombre
+            val alimentos = obtenerTodos()
+            val alimento = alimentos.find { it.nombreAlimento.equals(nombreAlimento, ignoreCase = true) }
+            
+            if (alimento == null) {
+                Log.e("AlimentoRepo", "❌ Alimento no encontrado: $nombreAlimento")
+                return false
+            }
+            
+            // Crear registro de alimento
+            val registro = RegistroAlimentoEntrada(
+                idUsuario = idUsuario,
+                idAlimento = alimento.idAlimento,
+                tamanoPorcion = cantidad.toFloatOrNull() ?: 1.0f,
+                unidadMedida = unidad,
+                tamanoOriginal = cantidad.toFloatOrNull() ?: 1.0f,
+                unidadOriginal = unidad,
+                momentoDelDia = momentoDelDia
+            )
+            
+            // Guardar en la base de datos
+            guardarRegistro(registro)
+            Log.d("AlimentoRepo", "✅ Alimento agregado exitosamente desde chatbot")
+            return true
+            
+        } catch (e: Exception) {
+            Log.e("AlimentoRepo", "❌ Error agregando alimento desde chatbot: ${e.message}")
+            return false
+        }
+    }
+    
+    suspend fun cambiarAlimentoDesdeChatbot(
+        idUsuario: Long,
+        alimentoOriginal: String,
+        nuevoAlimento: String,
+        cantidad: String,
+        unidad: String,
+        momentoDelDia: String
+    ): Boolean {
+        try {
+            Log.d("AlimentoRepo", "→ Cambiando alimento desde chatbot: $alimentoOriginal -> $nuevoAlimento")
+            
+            // Buscar el alimento original y eliminarlo
+            val registros = obtenerComidasRecientes(idUsuario)
+            val registroOriginal = registros.find { 
+                it.alimento.nombreAlimento.equals(alimentoOriginal, ignoreCase = true) &&
+                it.momentoDelDia.equals(momentoDelDia, ignoreCase = true)
+            }
+            
+            if (registroOriginal != null) {
+                // Eliminar el registro original
+                eliminarRegistroPorId(registroOriginal. idRegistroAlimento)
+                Log.d("AlimentoRepo", "✅ Registro original eliminado: ${registroOriginal.alimento.nombreAlimento}")
+            }
+            
+            // Agregar el nuevo alimento
+            val resultado = agregarAlimentoDesdeChatbot(idUsuario, nuevoAlimento, cantidad, unidad, momentoDelDia)
+            
+            if (resultado) {
+                Log.d("AlimentoRepo", "✅ Cambio de alimento completado exitosamente")
+            } else {
+                Log.e("AlimentoRepo", "❌ Error agregando nuevo alimento")
+            }
+            
+            return resultado
+            
+        } catch (e: Exception) {
+            Log.e("AlimentoRepo", "❌ Error cambiando alimento desde chatbot: ${e.message}")
+            return false
+        }
+    }
+    
+    suspend fun buscarAlimentoPorNombre(nombreAlimento: String): Alimento? {
+        return try {
+            val alimentos = obtenerTodos()
+            alimentos.find { it.nombreAlimento.equals(nombreAlimento, ignoreCase = true) }
+        } catch (e: Exception) {
+            Log.e("AlimentoRepo", "❌ Error buscando alimento por nombre: ${e.message}")
+            null
+        }
+    }
 }

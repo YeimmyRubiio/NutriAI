@@ -14,7 +14,7 @@ public class CorsConfigurer {
           public void addCorsMappings(CorsRegistry registry){
               registry.addMapping("/api/**")
                       .allowedOriginPatterns(
-                              "http://192.168.1.10:8080",
+                              "http://192.168.20.151:8080",
                               "http://10.0.2.2:8080",   // Emulador Android
                               "http://localhost:8080", // Postman (si usas el interceptor de Postman)
                               "*"                      // Opción segura si NO usas cookies/autenticación basada en sesión

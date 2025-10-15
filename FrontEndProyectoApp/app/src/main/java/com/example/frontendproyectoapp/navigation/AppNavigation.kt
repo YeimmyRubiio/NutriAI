@@ -11,6 +11,7 @@ import com.example.frontendproyectoapp.screen.ConfiguracionRecordatorioScreen
 import com.example.frontendproyectoapp.screen.ConfiguracionScreen
 import com.example.frontendproyectoapp.screen.DetalleAlimentoScreen
 import com.example.frontendproyectoapp.screen.EstadisticasScreen
+import com.example.frontendproyectoapp.screen.GeminiConfigScreen
 import com.example.frontendproyectoapp.screen.InicioScreen
 import com.example.frontendproyectoapp.screen.LoginScreen
 import com.example.frontendproyectoapp.screen.RegistroVent10Screen
@@ -68,6 +69,7 @@ fun AppNavigation(
         }
         composable("perfil") { ConfiguracionPerfilScreen(navController) }
         composable("recordatorios") { ConfiguracionRecordatorioScreen(navController)}
+        composable("gemini-config") { GeminiConfigScreen(navController::navigateUp) }
 
         // Alimentos
         composable("favoritos") { AlimentosFavoritosScreen(navController) }

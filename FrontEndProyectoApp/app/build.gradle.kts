@@ -19,8 +19,14 @@ android {
     }
 
     buildTypes {
+        debug {
+            isMinifyEnabled = false
+            isDebuggable = true
+            isShrinkResources = false
+        }
         release {
             isMinifyEnabled = false
+            isShrinkResources = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -33,6 +39,13 @@ android {
     }
     kotlinOptions {
         jvmTarget = "11"
+    }
+    
+    // Fix for mergeDebugResources error
+    packagingOptions {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
     }
     buildFeatures {
         compose = true
@@ -93,5 +106,8 @@ dependencies {
     implementation(libs.mpandroidchart)
 
     implementation ("com.github.mhiew:android-pdf-viewer:3.2.0-beta.3")
+
+    // Google Gemini AI
+    implementation("com.google.ai.client.generativeai:generativeai:0.8.0")
 
 }

@@ -141,8 +141,12 @@ class UsuarioViewModel(application: Application) : AndroidViewModel(application)
 
     fun cargarUsuario(idUsuario: Long) {
         viewModelScope.launch {
+            println("=== CARGANDO USUARIO ===")
+            println("ID Usuario: $idUsuario")
             val usuario = repositoryUsuario.obtenerUsuarioPorId(idUsuario)
+            println("Usuario obtenido: $usuario")
             if (usuario != null && !usuario.nombre.isNullOrEmpty()) {
+                println("Nombre del usuario: '${usuario.nombre}'")
                 nombreUsuario = usuario.nombre
                 correoUsuario = usuario.correo
                 fechaNacimientoUsuario = usuario.fechaNacimiento
@@ -153,6 +157,9 @@ class UsuarioViewModel(application: Application) : AndroidViewModel(application)
                 objetivosSaludUsuario = usuario.objetivosSalud.toString()
                 nivelActividadUsuario = usuario.nivelActividad.toString()
                 pesoObjetivoUsuario = usuario.pesoObjetivo.toString()
+                println("Usuario cargado exitosamente: $nombreUsuario")
+            } else {
+                println("No se pudo cargar el usuario o el nombre está vacío")
             }
         }
     }
