@@ -177,4 +177,29 @@ class AlimentoRepository {
             null
         }
     }
+    
+    // Métodos para el nuevo flujo de cambio por categorías
+    
+    suspend fun obtenerCategoriasUnicas(): List<String> {
+        return try {
+            val alimentos = obtenerTodos()
+            val categorias = alimentos.map { it.categoria }.distinct().sorted()
+            Log.d("AlimentoRepo", "✅ Categorías obtenidas: $categorias")
+            categorias
+        } catch (e: Exception) {
+            Log.e("AlimentoRepo", "❌ Error obteniendo categorías: ${e.message}")
+            emptyList()
+        }
+    }
+    
+    suspend fun obtenerAlimentosPorCategoriaParaChatbot(categoria: String): List<Alimento> {
+        return try {
+            val alimentos = obtenerAlimentosPorCategoria(categoria)
+            Log.d("AlimentoRepo", "✅ Alimentos obtenidos para categoría '$categoria': ${alimentos.size} elementos")
+            alimentos
+        } catch (e: Exception) {
+            Log.e("AlimentoRepo", "❌ Error obteniendo alimentos por categoría '$categoria': ${e.message}")
+            emptyList()
+        }
+    }
 }

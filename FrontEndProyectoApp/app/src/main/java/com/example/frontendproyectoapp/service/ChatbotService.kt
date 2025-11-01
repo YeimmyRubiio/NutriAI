@@ -50,7 +50,16 @@ class ChatbotService {
         val mealTime: String? = null,
         val originalFood: String? = null,
         val newFood: String? = null,
-        val routineCount: Int = 0 // Contador de rutinas generadas
+        val routineCount: Int = 0, // Contador de rutinas generadas
+        // Nuevos campos para el flujo de categorías
+        val availableCategories: List<String>? = null,
+        val selectedCategory: String? = null,
+        val availableFoods: List<Alimento>? = null,
+        val selectedFood: Alimento? = null,
+        // Unidades válidas del alimento seleccionado (desde unidad_equivalencia)
+        val validUnits: List<String>? = null,
+        // Alimentos actuales de la rutina para cambiar
+        val currentRoutineFoods: List<RegistroAlimentoSalida>? = null
     )
     
     enum class NutriAIStep {
@@ -65,7 +74,27 @@ class ChatbotService {
         CHANGE_QUANTITY,
         CHANGE_UNIT,
         CHANGE_MEAL_TIME,
-        CHANGE_CONFIRMATION
+        CHANGE_CONFIRMATION,
+        // Nuevos estados para el flujo de cambio por categorías
+        CHANGE_SHOW_CATEGORIES,
+        CHANGE_SHOW_CURRENT_FOOD,
+        CHANGE_SELECT_ORIGINAL_FOOD,
+        CHANGE_SELECT_CATEGORY,
+        CHANGE_SHOW_FOODS,
+        CHANGE_SELECT_FOOD,
+        CHANGE_SELECT_FOOD_QUANTITY,
+        CHANGE_SELECT_MEAL_TIME,
+        CHANGE_SELECT_UNIT,
+        CHANGE_CONFIRMATION_NEW,
+        // Nuevos estados para el flujo de agregar por categorías
+        ADD_SHOW_CATEGORIES,
+        ADD_SELECT_CATEGORY,
+        ADD_SHOW_FOODS,
+        ADD_SELECT_FOOD,
+        ADD_SELECT_FOOD_QUANTITY,
+        ADD_SELECT_MEAL_TIME,
+        ADD_SELECT_UNIT,
+        ADD_CONFIRMATION
     }
     
     private val baseUrl = "http://localhost:8080/api" // Para desarrollo local
@@ -203,44 +232,126 @@ class ChatbotService {
         }
         
         // Check for "agregar" and "cambiar" commands - HIGH PRIORITY (but not during confirmation)
-        if ((lowerMessage.contains("agregar") || lowerMessage.contains("añadir")) && 
+        if ((lowerMessage.contains("agregar") || lowerMessage.contains("añadir") || 
+             lowerMessage.contains("agregar alimento") || lowerMessage.contains("añadir alimento")) && 
             currentState.currentStep != NutriAIStep.ADD_FOOD_CONFIRMATION) {
             val userId = userProfile?.idUsuario ?: 1L
             val userName = userProfile?.nombre ?: ""
             val greeting = if (userName.isNotBlank() && userName != "Usuario") "👋 ¡Hola $userName!" else "👋 ¡Hola!"
             
-            // Start conversation flow for adding food
-            conversationStates[userId] = ConversationState(userId, NutriAIStep.ADD_FOOD_NAME)
-            println("=== INICIANDO FLUJO AGREGAR ALIMENTO PARA USUARIO $userId ===")
-            
-            println("=== RETORNANDO RESPUESTA AGREGAR - NO DEBE CONTINUAR CON GEMINI ===")
-            return@withContext ChatbotResponse(
-                respuesta = "$greeting ¡Perfecto! Te ayudo a agregar un alimento a tu rutina.\n\n" +
-                           "🥦 **¿Cuál es el nombre del alimento que quieres agregar?**\n" +
-                           "(ejemplo: avena, pollo, arroz, quinoa, etc.)",
-                tipoIntento = TipoIntento.Modificar_Rutina,
-                tipoAccion = TipoAccion.Agregar
-            )
+            // Verificar si es el comando específico "agregar alimento" para usar el nuevo flujo
+            if (lowerMessage.contains("agregar alimento") || lowerMessage.contains("añadir alimento")) {
+                // Iniciar nuevo flujo con categorías
+                try {
+                    val categorias = repository.obtenerCategoriasUnicas()
+                    if (categorias.isNotEmpty()) {
+                        conversationStates[userId] = ConversationState(
+                            userId = userId,
+                            currentStep = NutriAIStep.ADD_SELECT_CATEGORY,
+                            availableCategories = categorias
+                        )
+                        println("=== INICIANDO NUEVO FLUJO AGREGAR ALIMENTO CON CATEGORÍAS PARA USUARIO $userId ===")
+                        
+                        val categoriasTexto = categorias.joinToString(", ")
+                        return@withContext ChatbotResponse(
+                            respuesta = "$greeting ¡Perfecto! Te ayudo a agregar un alimento a tu rutina.\n\n" +
+                                       "Puedes agregar alimentos de las siguientes categorías: **$categoriasTexto**\n\n" +
+                                       "Por favor, selecciona una categoría.",
+                            tipoIntento = TipoIntento.Modificar_Rutina,
+                            tipoAccion = TipoAccion.Agregar
+                        )
+                    } else {
+                        conversationStates[userId] = ConversationState(userId, NutriAIStep.IDLE)
+                        return@withContext ChatbotResponse(
+                            respuesta = "Lo siento, no hay categorías de alimentos disponibles en este momento.\n\n" +
+                                       "¿Hay algo más en lo que pueda ayudarte?",
+                            tipoIntento = TipoIntento.Otros,
+                            tipoAccion = null
+                        )
+                    }
+                } catch (e: Exception) {
+                    println("Error obteniendo categorías: ${e.message}")
+                    conversationStates[userId] = ConversationState(userId, NutriAIStep.IDLE)
+                    return@withContext ChatbotResponse(
+                        respuesta = "Lo siento, hubo un problema al obtener las categorías.\n\n" +
+                                   "¿Hay algo más en lo que pueda ayudarte?",
+                        tipoIntento = TipoIntento.Otros,
+                        tipoAccion = null
+                    )
+                }
+            } else {
+                // Usar flujo original para otros comandos
+                conversationStates[userId] = ConversationState(userId, NutriAIStep.ADD_FOOD_NAME)
+                println("=== INICIANDO FLUJO AGREGAR ALIMENTO ORIGINAL PARA USUARIO $userId ===")
+                
+                return@withContext ChatbotResponse(
+                    respuesta = "$greeting ¡Perfecto! Te ayudo a agregar un alimento a tu rutina.\n\n" +
+                               "🥦 **¿Cuál es el nombre del alimento que quieres agregar?**\n" +
+                               "(ejemplo: avena, pollo, arroz, quinoa, etc.)",
+                    tipoIntento = TipoIntento.Modificar_Rutina,
+                    tipoAccion = TipoAccion.Agregar
+                )
+            }
         }
         
         if ((lowerMessage.contains("cambiar") || lowerMessage.contains("modificar") || 
+            lowerMessage.contains("cambiar alimento") || lowerMessage.contains("modificar alimento") ||
             lowerMessage.contains("modifica tu rutina") || lowerMessage.contains("modificar rutina")) &&
             currentState.currentStep != NutriAIStep.CHANGE_CONFIRMATION) {
             val userId = userProfile?.idUsuario ?: 1L
             val userName = userProfile?.nombre ?: ""
             val greeting = if (userName.isNotBlank() && userName != "Usuario") "👋 ¡Hola $userName!" else "👋 ¡Hola!"
             
-            // Start conversation flow for changing food
-            conversationStates[userId] = ConversationState(userId, NutriAIStep.CHANGE_ORIGINAL_FOOD)
-            println("=== INICIANDO FLUJO CAMBIAR ALIMENTO PARA USUARIO $userId ===")
-            
-            return@withContext ChatbotResponse(
-                respuesta = "$greeting ¡Perfecto! Te ayudo a cambiar un alimento en tu rutina.\n\n" +
-                           "🔄 **¿Qué alimento de tu rutina actual quieres reemplazar?**\n" +
-                           "(menciona el alimento que quieres cambiar)",
-                tipoIntento = TipoIntento.Modificar_Rutina,
-                tipoAccion = TipoAccion.Modificar
-            )
+            // Verificar si es el comando específico "cambiar alimento" para usar el nuevo flujo
+            if (lowerMessage.contains("cambiar alimento") || lowerMessage.contains("modificar alimento")) {
+                println("=== INICIANDO NUEVO FLUJO CAMBIAR ALIMENTO PARA USUARIO $userId ===")
+                
+                // Obtener TODOS los alimentos de la rutina actual
+                val alimentosEnRutina = currentRoutine?.filter { it != null } ?: emptyList()
+                
+                if (alimentosEnRutina.isEmpty()) {
+                    conversationStates[userId] = ConversationState(userId, NutriAIStep.IDLE)
+                    return@withContext ChatbotResponse(
+                        respuesta = "$greeting No tienes alimentos registrados actualmente en tu rutina.\n\n" +
+                                   "¿Te gustaría agregar un alimento a tu rutina?",
+                        tipoIntento = TipoIntento.Modificar_Rutina,
+                        tipoAccion = TipoAccion.Agregar
+                    )
+                }
+                
+                // Mostrar todos los alimentos de la rutina para que el usuario seleccione cuál cambiar
+                val alimentosTexto = alimentosEnRutina.joinToString("\n") { 
+                    "• **${it.alimento.nombreAlimento}** - ${it.momentoDelDia}" 
+                }
+                
+                conversationStates[userId] = ConversationState(
+                    userId = userId,
+                    currentStep = NutriAIStep.CHANGE_SELECT_ORIGINAL_FOOD,
+                    currentRoutineFoods = alimentosEnRutina
+                )
+                
+                return@withContext ChatbotResponse(
+                    respuesta = "$greeting ¡Perfecto! Te ayudo a cambiar un alimento en tu rutina.\n\n" +
+                               "Estos son los alimentos registrados en tu rutina actual:\n\n" +
+                               "$alimentosTexto\n\n" +
+                               "📝 **¿Qué alimento deseas cambiar?**\n" +
+                               "(Escribe el nombre del alimento que quieres reemplazar)",
+                    tipoIntento = TipoIntento.Modificar_Rutina,
+                    tipoAccion = TipoAccion.Modificar
+                )
+            } else {
+                // Usar flujo original para otros comandos
+                conversationStates[userId] = ConversationState(userId, NutriAIStep.CHANGE_ORIGINAL_FOOD)
+                println("=== INICIANDO FLUJO CAMBIAR ALIMENTO ORIGINAL PARA USUARIO $userId ===")
+                
+                return@withContext ChatbotResponse(
+                    respuesta = "$greeting ¡Perfecto! Te ayudo a cambiar un alimento en tu rutina.\n\n" +
+                               "🔄 **¿Qué alimento de tu rutina actual quieres reemplazar?**\n" +
+                               "(menciona el alimento que quieres cambiar)",
+                    tipoIntento = TipoIntento.Modificar_Rutina,
+                    tipoAccion = TipoAccion.Modificar
+                )
+            }
         }
         
         // Verificar si es una solicitud de rutina - usar fallback directo
@@ -674,14 +785,8 @@ class ChatbotService {
                  println("=== DETECTADO: Mostrar rutina nutricional ===")
                  println("UserProfile recibido: $userProfile")
                  println("Nombre del usuario: ${userProfile?.nombre}")
-                 val routineResponse = generateRoutineResponse(userProfile, currentRoutine, null)
-                 // Agregar opciones de gestión de rutina según las instrucciones de NutriAI
-                 routineResponse + "\n\n" +
-                 "**Opciones disponibles:**\n\n" +
-                 "Escribe **agregar** si deseas incluir un nuevo alimento.\n\n" +
-                 "Escribe **cambiar** si deseas reemplazar un alimento existente.\n\n" +
-                 "Escribe **ver rutina YYYY-MM-DD** si deseas consultar la rutina de otra fecha.\n" +
-                 "👉 **Ejemplo:** ver rutina 2025-10-05"
+                 // generateRoutineResponse ya incluye las opciones cuando es rutina de hoy
+                 generateRoutineResponse(userProfile, currentRoutine, null)
              }
             
             
@@ -776,11 +881,13 @@ class ChatbotService {
         return when (intent) {
             TipoIntento.Modificar_Rutina -> {
                 when {
-                    lowerMessage.contains("agregar") || lowerMessage.contains("añadir") -> 
+                    lowerMessage.contains("agregar") || lowerMessage.contains("añadir") || 
+                    lowerMessage.contains("agregar alimento") || lowerMessage.contains("añadir alimento") -> 
                         "¡Perfecto! Te ayudo a agregar alimentos a tu rutina. ¿Qué alimento te gustaría agregar y en qué momento del día (desayuno, almuerzo, cena, snack)?"
                     lowerMessage.contains("eliminar") || lowerMessage.contains("quitar") -> 
                         "Entiendo que quieres eliminar algo de tu rutina. ¿Qué alimento específico te gustaría quitar y de qué comida?"
                     lowerMessage.contains("cambiar") || lowerMessage.contains("modificar") || 
+                    lowerMessage.contains("cambiar alimento") || lowerMessage.contains("modificar alimento") ||
                     lowerMessage.contains("modifica tu rutina") -> 
                         "Te ayudo a modificar tu rutina. ¿Qué alimento te gustaría cambiar y por cuál te gustaría reemplazarlo?"
                     else -> 
@@ -820,10 +927,12 @@ class ChatbotService {
         
         return when {
             lowerMessage.contains("agregar") || lowerMessage.contains("añadir") || 
+            lowerMessage.contains("agregar alimento") || lowerMessage.contains("añadir alimento") ||
             lowerMessage.contains("incluir") || lowerMessage.contains("agregar comida") -> TipoIntento.Modificar_Rutina
             lowerMessage.contains("eliminar") || lowerMessage.contains("quitar") ||
             lowerMessage.contains("remover") || lowerMessage.contains("quitar comida") -> TipoIntento.Modificar_Rutina
             lowerMessage.contains("cambiar") || lowerMessage.contains("modificar") ||
+            lowerMessage.contains("cambiar alimento") || lowerMessage.contains("modificar alimento") ||
             lowerMessage.contains("rutina") || lowerMessage.contains("modificar rutina") ||
             lowerMessage.contains("modifica tu rutina") -> TipoIntento.Modificar_Rutina
             lowerMessage.contains("calorías") || lowerMessage.contains("nutricional") ||
@@ -842,9 +951,11 @@ class ChatbotService {
         val lowerMessage = message.lowercase()
         
         return when {
-            lowerMessage.contains("agregar") || lowerMessage.contains("añadir") -> TipoAccion.Agregar
+            lowerMessage.contains("agregar") || lowerMessage.contains("añadir") || 
+            lowerMessage.contains("agregar alimento") || lowerMessage.contains("añadir alimento") -> TipoAccion.Agregar
             lowerMessage.contains("eliminar") || lowerMessage.contains("quitar") -> TipoAccion.Eliminar
-            lowerMessage.contains("cambiar") || lowerMessage.contains("modificar") -> TipoAccion.Modificar
+            lowerMessage.contains("cambiar") || lowerMessage.contains("modificar") || 
+            lowerMessage.contains("cambiar alimento") || lowerMessage.contains("modificar alimento") -> TipoAccion.Modificar
             else -> null
         }
     }
@@ -989,7 +1100,8 @@ class ChatbotService {
         val lowerMessage = message.lowercase()
         
         // Detectar si contiene acción, alimento, momento y cantidad
-        val hasAction = lowerMessage.contains("agregar") || lowerMessage.contains("cambiar")
+        val hasAction = lowerMessage.contains("agregar") || lowerMessage.contains("cambiar") ||
+                       lowerMessage.contains("agregar alimento") || lowerMessage.contains("cambiar alimento")
         val hasFood = lowerMessage.contains("gramos") || lowerMessage.contains("taza") || 
                      lowerMessage.contains("porción") || lowerMessage.contains("unidad")
         val hasMealTime = lowerMessage.contains("desayuno") || lowerMessage.contains("almuerzo") || 
@@ -1006,8 +1118,8 @@ class ChatbotService {
         try {
             // Detectar acción
             val action = when {
-                lowerMessage.contains("agregar") -> "Agregar"
-                lowerMessage.contains("cambiar") -> "Cambiar"
+                lowerMessage.contains("agregar") || lowerMessage.contains("agregar alimento") -> "Agregar"
+                lowerMessage.contains("cambiar") || lowerMessage.contains("cambiar alimento") -> "Cambiar"
                 else -> return null
             }
             
@@ -1094,19 +1206,49 @@ class ChatbotService {
             val userId = userProfile?.idUsuario ?: 0L
             val specificRoutine = getRoutineForSpecificDate(datePattern, userId)
             
-            "$greeting Aquí tienes tu rutina nutricional del $datePattern:\n\n" +
-            generateRoutineContent(specificRoutine, datePattern)
+            // Verificar si la fecha consultada es el día actual
+            val isCurrentDate = try {
+                val consultedDate = LocalDate.parse(datePattern, DateTimeFormatter.ofPattern("yyyy-MM-dd"))
+                val today = LocalDate.now()
+                consultedDate == today
+            } catch (e: Exception) {
+                false
+            }
+            
+            val routineContent = "$greeting Aquí tienes tu rutina nutricional del $datePattern:\n\n" +
+            generateRoutineContent(specificRoutine, datePattern, isCurrentDate)
+            
+            // Si no es el día actual, agregar menú inicial después de mostrar la rutina
+            if (!isCurrentDate) {
+                routineContent + "\n\n" + getInitialMenu(userName)
+            } else {
+                // Si es el día actual, agregar las opciones normales
+                routineContent + "\n\n" +
+                "**Opciones disponibles:**\n\n" +
+                "Escribe **agregar alimento** si deseas incluir un nuevo alimento.\n\n" +
+                "Escribe **cambiar alimento** si deseas reemplazar un alimento existente.\n\n" +
+                "Escribe **ver rutina YYYY-MM-DD** si deseas consultar la rutina de otra fecha.\n" +
+                "👉 **Ejemplo:** ver rutina 2025-10-05\n\n" +
+                "⚠️ **Nota:** Las opciones de agregar alimento y cambiar alimento solo están disponibles para la rutina del día actual."
+            }
         } else {
             // Rutina de hoy
             "$greeting Aquí tienes tu rutina nutricional de hoy:\n\n" +
-            generateRoutineContent(currentRoutine, "hoy")
+            generateRoutineContent(currentRoutine, "hoy", true) + "\n\n" +
+            "**Opciones disponibles:**\n\n" +
+            "Escribe **agregar alimento** si deseas incluir un nuevo alimento.\n\n" +
+            "Escribe **cambiar alimento** si deseas reemplazar un alimento existente.\n\n" +
+            "Escribe **ver rutina YYYY-MM-DD** si deseas consultar la rutina de otra fecha.\n" +
+            "👉 **Ejemplo:** ver rutina 2025-10-05\n\n" +
+            "⚠️ **Nota:** Las opciones de agregar alimento y cambiar alimento solo están disponibles para la rutina del día actual."
         }
     }
     
-    private fun generateRoutineContent(currentRoutine: List<RegistroAlimentoSalida>?, dateContext: String): String {
+    private fun generateRoutineContent(currentRoutine: List<RegistroAlimentoSalida>?, dateContext: String, isCurrentDate: Boolean = true): String {
         println("=== GENERANDO CONTENIDO DE RUTINA ===")
         println("CurrentRoutine: ${currentRoutine?.size} elementos")
         println("DateContext: $dateContext")
+        println("IsCurrentDate: $isCurrentDate")
         println("CurrentRoutine detalle: ${currentRoutine?.map { "${it.alimento.nombreAlimento} (${it.momentoDelDia})" }}")
         
         return if (currentRoutine != null && currentRoutine.isNotEmpty()) {
@@ -1131,27 +1273,34 @@ class ChatbotService {
                 }
             }
             
-            rutinaContent + "\n\n"
+            rutinaContent
         } else {
             // No hay alimentos registrados
-            if (dateContext == "hoy") {
-                "📝 **No has registrado alimentos para $dateContext**\n\n" +
+            if (dateContext == "hoy" || isCurrentDate) {
+                "📝 **No has registrado alimentos para ${if (dateContext == "hoy") "hoy" else dateContext}**\n\n" +
                 "Para ver tu rutina nutricional, necesitas registrar los alimentos que consumes.\n\n" +
                 "💡 **¿Cómo registrar alimentos?**\n" +
                 "1. Ve a la sección 'Rutina'\n" +
                 "2. Ubica el momento del día\n" +
                 "3. Da clic en el icono +\n" +
                 "4. Selecciona la cantidad\n" +
-                "5. ¡Listo! Ya aparecerá el registro en la rutina\n\n"
+                "5. ¡Listo! Ya aparecerá el registro en la rutina"
             } else {
+                // Para fechas pasadas, solo mostrar que no hay registros sin opciones de agregar/cambiar
                 "📝 **No tienes una rutina registrada para el $dateContext**\n\n" +
-                "No se encontraron alimentos registrados para esa fecha.\n\n" +
-                "💡 **Opciones disponibles:**\n" +
-                "• Escribe **agregar** para incluir un nuevo alimento\n" +
-                "• Escribe **cambiar** para modificar un alimento existente\n" +
-                "• Escribe **ver rutina YYYY-MM-DD** para consultar otra fecha\n\n"
+                "No se encontraron alimentos registrados para esa fecha."
             }
         }
+    }
+    
+    private fun getInitialMenu(userName: String): String {
+        val greeting = if (userName.isNotBlank() && userName != "Usuario") "👋 ¡Hola $userName!" else "👋 ¡Hola!"
+        return "**Opciones disponibles:**\n\n" +
+               "Escribe **agregar alimento** si deseas incluir un nuevo alimento a tu rutina del día actual.\n\n" +
+               "Escribe **cambiar alimento** si deseas reemplazar un alimento existente en tu rutina del día actual.\n\n" +
+               "Escribe **ver rutina YYYY-MM-DD** si deseas consultar la rutina de otra fecha.\n" +
+               "👉 **Ejemplo:** ver rutina 2025-10-05\n\n" +
+               "⚠️ **Nota:** Las opciones de agregar alimento y cambiar alimento solo están disponibles para la rutina del día actual."
     }
     
     private fun extractDateFromMessage(message: String): String? {
@@ -1344,14 +1493,44 @@ class ChatbotService {
                 val quantity = message.trim()
                 // Validar que sea solo un número
                 if (quantity.matches(Regex("\\d+(\\.\\d+)?"))) {
+                    // Buscar el alimento por nombre para obtener las unidades válidas
+                    val alimento = try {
+                        repository.buscarAlimentoPorNombre(currentState.foodName ?: "")
+                    } catch (e: Exception) {
+                        println("Error buscando alimento: ${e.message}")
+                        null
+                    }
+                    
+                    // Obtener las unidades válidas si el alimento existe
+                    val unidadesValidas = if (alimento != null) {
+                        try {
+                            repository.obtenerUnidadesPorId(alimento.idAlimento)
+                        } catch (e: Exception) {
+                            println("Error obteniendo unidades válidas: ${e.message}")
+                            emptyList<String>()
+                        }
+                    } else {
+                        emptyList<String>()
+                    }
+                    
                     conversationStates[userId] = currentState.copy(
                         currentStep = NutriAIStep.ADD_FOOD_UNIT,
-                        quantity = quantity
+                        quantity = quantity,
+                        validUnits = if (unidadesValidas.isNotEmpty()) unidadesValidas else null
                     )
+                    
+                    val mensajeUnidades = if (unidadesValidas.isNotEmpty()) {
+                        val unidadesTexto = unidadesValidas.joinToString(", ")
+                        "📏 **¿Cuál es la unidad de medida?**\n\n" +
+                        "Unidades disponibles: **$unidadesTexto**\n\n" +
+                        "Por favor, elige una de las unidades listadas arriba."
+                    } else {
+                        "📏 **¿Cuál es la unidad de medida?**\n" +
+                        "(ejemplo: gramos, tazas, porciones, etc.)"
+                    }
+                    
                     ChatbotResponse(
-                        respuesta = "Perfecto, **$quantity** de **${currentState.foodName}**.\n\n" +
-                                   "📏 **¿Cuál es la unidad de medida?**\n" +
-                                   "(ejemplo: gramos, tazas, porciones, etc.)",
+                        respuesta = "Perfecto, **$quantity** de **${currentState.foodName}**.\n\n$mensajeUnidades",
                         tipoIntento = TipoIntento.Modificar_Rutina,
                         tipoAccion = TipoAccion.Agregar
                     )
@@ -1367,18 +1546,52 @@ class ChatbotService {
             }
             
             NutriAIStep.ADD_FOOD_UNIT -> {
-                val unit = message.trim()
-                conversationStates[userId] = currentState.copy(
-                    currentStep = NutriAIStep.ADD_FOOD_MEAL_TIME,
-                    unit = unit
-                )
-                ChatbotResponse(
-                    respuesta = "Excelente, **${currentState.quantity} $unit** de **${currentState.foodName}**.\n\n" +
-                               "🕐 **¿En qué momento del día?**\n" +
-                               "(Desayuno, Almuerzo, Cena, Snack)",
-                    tipoIntento = TipoIntento.Modificar_Rutina,
-                    tipoAccion = TipoAccion.Agregar
-                )
+                val unit = message.trim().lowercase()
+                val unidadesValidas = currentState.validUnits
+                
+                // Validar que la unidad esté en la lista de unidades válidas
+                if (!unidadesValidas.isNullOrEmpty()) {
+                    val unidadValida = unidadesValidas.find { 
+                        it.lowercase() == unit 
+                    }
+                    
+                    if (unidadValida == null) {
+                        val unidadesTexto = unidadesValidas.joinToString(", ")
+                        ChatbotResponse(
+                            respuesta = "❌ La unidad **$unit** no está disponible para **${currentState.foodName}**.\n\n" +
+                                       "Las unidades válidas son: **$unidadesTexto**\n\n" +
+                                       "Por favor, elige una de las unidades listadas.",
+                            tipoIntento = TipoIntento.Modificar_Rutina,
+                            tipoAccion = TipoAccion.Agregar
+                        )
+                    } else {
+                        // Usar la unidad válida (con el formato correcto)
+                        conversationStates[userId] = currentState.copy(
+                            currentStep = NutriAIStep.ADD_FOOD_MEAL_TIME,
+                            unit = unidadValida
+                        )
+                        ChatbotResponse(
+                            respuesta = "Excelente, **${currentState.quantity} $unidadValida** de **${currentState.foodName}**.\n\n" +
+                                       "🕐 **¿En qué momento del día?**\n" +
+                                       "(Desayuno, Almuerzo, Cena, Snack)",
+                            tipoIntento = TipoIntento.Modificar_Rutina,
+                            tipoAccion = TipoAccion.Agregar
+                        )
+                    }
+                } else {
+                    // Si no hay unidades válidas disponibles, aceptar cualquier unidad (fallback)
+                    conversationStates[userId] = currentState.copy(
+                        currentStep = NutriAIStep.ADD_FOOD_MEAL_TIME,
+                        unit = unit
+                    )
+                    ChatbotResponse(
+                        respuesta = "Excelente, **${currentState.quantity} $unit** de **${currentState.foodName}**.\n\n" +
+                                   "🕐 **¿En qué momento del día?**\n" +
+                                   "(Desayuno, Almuerzo, Cena, Snack)",
+                        tipoIntento = TipoIntento.Modificar_Rutina,
+                        tipoAccion = TipoAccion.Agregar
+                    )
+                }
             }
             
             NutriAIStep.ADD_FOOD_MEAL_TIME -> {
@@ -1405,7 +1618,8 @@ class ChatbotService {
             NutriAIStep.ADD_FOOD_CONFIRMATION -> {
                 val lowerMessage = message.lowercase()
                 if (lowerMessage.contains("sí") || lowerMessage.contains("si") || lowerMessage.contains("confirmo") || 
-                    lowerMessage.contains("agregar") || lowerMessage.contains("añadir")) {
+                    lowerMessage.contains("agregar") || lowerMessage.contains("añadir") ||
+                    lowerMessage.contains("agregar alimento") || lowerMessage.contains("añadir alimento")) {
                     // Perform database operation
                     val success = try {
                         repository.agregarAlimentoDesdeChatbot(
@@ -1552,7 +1766,8 @@ class ChatbotService {
             NutriAIStep.CHANGE_CONFIRMATION -> {
                 val lowerMessage = message.lowercase()
                 if (lowerMessage.contains("sí") || lowerMessage.contains("si") || lowerMessage.contains("confirmo") || 
-                    lowerMessage.contains("cambiar") || lowerMessage.contains("modificar")) {
+                    lowerMessage.contains("cambiar") || lowerMessage.contains("modificar") ||
+                    lowerMessage.contains("cambiar alimento") || lowerMessage.contains("modificar alimento")) {
                     // Perform database operation
                     val success = try {
                         repository.cambiarAlimentoDesdeChatbot(
@@ -1601,6 +1816,758 @@ class ChatbotService {
                         tipoAccion = null
                     )
                 }
+            }
+            
+            // Nuevos estados para el flujo de cambio por categorías
+            NutriAIStep.CHANGE_SHOW_CATEGORIES -> {
+                // Este estado ya no se usa, las categorías se obtienen directamente en la detección del comando
+                conversationStates[userId] = ConversationState(userId, NutriAIStep.IDLE)
+                ChatbotResponse(
+                    respuesta = "¿Hay algo más en lo que pueda ayudarte con tu rutina nutricional?",
+                    tipoIntento = TipoIntento.Otros,
+                    tipoAccion = null
+                )
+            }
+            
+            NutriAIStep.CHANGE_SHOW_CURRENT_FOOD -> {
+                // Este estado ya no se usa, el alimento actual se muestra directamente en la detección del comando
+                conversationStates[userId] = ConversationState(userId, NutriAIStep.IDLE)
+                ChatbotResponse(
+                    respuesta = "¿Hay algo más en lo que pueda ayudarte con tu rutina nutricional?",
+                    tipoIntento = TipoIntento.Otros,
+                    tipoAccion = null
+                )
+            }
+            
+            NutriAIStep.CHANGE_SELECT_ORIGINAL_FOOD -> {
+                val alimentoSeleccionado = message.trim()
+                val alimentosDisponibles = currentState.currentRoutineFoods ?: emptyList()
+                
+                // Buscar el alimento en la lista de alimentos de la rutina
+                val alimentoValido = alimentosDisponibles.find { 
+                    it.alimento.nombreAlimento.equals(alimentoSeleccionado, ignoreCase = true) 
+                }
+                
+                if (alimentoValido != null) {
+                    // Alimento encontrado, ahora obtener categorías para el nuevo alimento
+                    try {
+                        val categorias = repository.obtenerCategoriasUnicas()
+                        if (categorias.isNotEmpty()) {
+                            conversationStates[userId] = currentState.copy(
+                                currentStep = NutriAIStep.CHANGE_SELECT_CATEGORY,
+                                availableCategories = categorias,
+                                originalFood = alimentoValido.alimento.nombreAlimento,
+                                mealTime = alimentoValido.momentoDelDia
+                            )
+                            val categoriasTexto = categorias.joinToString(", ")
+                            ChatbotResponse(
+                                respuesta = "Perfecto, cambiarás **${alimentoValido.alimento.nombreAlimento}** de **${alimentoValido.momentoDelDia}**.\n\n" +
+                                           "Estas son las categorías disponibles: **$categoriasTexto**\n\n" +
+                                           "Por favor, selecciona la categoría del nuevo alimento que deseas elegir.",
+                                tipoIntento = TipoIntento.Modificar_Rutina,
+                                tipoAccion = TipoAccion.Modificar
+                            )
+                        } else {
+                            conversationStates[userId] = ConversationState(userId, NutriAIStep.IDLE)
+                            ChatbotResponse(
+                                respuesta = "Lo siento, no hay categorías de alimentos disponibles en este momento.\n\n" +
+                                           "¿Hay algo más en lo que pueda ayudarte?",
+                                tipoIntento = TipoIntento.Otros,
+                                tipoAccion = null
+                            )
+                        }
+                    } catch (e: Exception) {
+                        println("Error obteniendo categorías: ${e.message}")
+                        conversationStates[userId] = ConversationState(userId, NutriAIStep.IDLE)
+                        ChatbotResponse(
+                            respuesta = "Lo siento, hubo un problema al obtener las categorías.\n\n" +
+                                       "¿Hay algo más en lo que pueda ayudarte?",
+                            tipoIntento = TipoIntento.Otros,
+                            tipoAccion = null
+                        )
+                    }
+                } else {
+                    // Alimento no encontrado, mostrar lista nuevamente
+                    val alimentosTexto = alimentosDisponibles.joinToString("\n") { 
+                        "• **${it.alimento.nombreAlimento}** - ${it.momentoDelDia}" 
+                    }
+                    ChatbotResponse(
+                        respuesta = "❌ No encontré **$alimentoSeleccionado** en tu rutina actual.\n\n" +
+                                   "Estos son los alimentos registrados en tu rutina:\n\n" +
+                                   "$alimentosTexto\n\n" +
+                                   "📝 **Por favor, elige uno de los alimentos listados arriba.**",
+                        tipoIntento = TipoIntento.Modificar_Rutina,
+                        tipoAccion = TipoAccion.Modificar
+                    )
+                }
+            }
+            
+            NutriAIStep.CHANGE_SELECT_CATEGORY -> {
+                val categoriaSeleccionada = message.trim()
+                val categoriasDisponibles = currentState.availableCategories ?: emptyList()
+                
+                // Verificar si la categoría existe
+                val categoriaValida = categoriasDisponibles.find { 
+                    it.equals(categoriaSeleccionada, ignoreCase = true) 
+                }
+                
+                if (categoriaValida != null) {
+                    try {
+                        val alimentos = repository.obtenerAlimentosPorCategoriaParaChatbot(categoriaValida)
+                        if (alimentos.isNotEmpty()) {
+                            conversationStates[userId] = currentState.copy(
+                                currentStep = NutriAIStep.CHANGE_SHOW_FOODS,
+                                selectedCategory = categoriaValida,
+                                availableFoods = alimentos
+                            )
+                            val alimentosTexto = alimentos.joinToString("\n") { "• ${it.nombreAlimento}" }
+                            ChatbotResponse(
+                                respuesta = "En la categoría **$categoriaValida** se encuentran los siguientes alimentos:\n\n" +
+                                           "$alimentosTexto\n\n" +
+                                           "Por favor, elige uno.",
+                                tipoIntento = TipoIntento.Modificar_Rutina,
+                                tipoAccion = TipoAccion.Modificar
+                            )
+                        } else {
+                            conversationStates[userId] = ConversationState(userId, NutriAIStep.IDLE)
+                            ChatbotResponse(
+                                respuesta = "Actualmente no hay alimentos registrados en esa categoría.\n\n" +
+                                           "¿Te gustaría consultar otra categoría?",
+                                tipoIntento = TipoIntento.Modificar_Rutina,
+                                tipoAccion = TipoAccion.Modificar
+                            )
+                        }
+                    } catch (e: Exception) {
+                        println("Error obteniendo alimentos por categoría: ${e.message}")
+                        conversationStates[userId] = ConversationState(userId, NutriAIStep.IDLE)
+                        ChatbotResponse(
+                            respuesta = "Lo siento, hubo un problema al obtener los alimentos de esa categoría.\n\n" +
+                                       "¿Hay algo más en lo que pueda ayudarte?",
+                            tipoIntento = TipoIntento.Otros,
+                            tipoAccion = null
+                        )
+                    }
+                } else {
+                    val categoriasTexto = categoriasDisponibles.joinToString(", ")
+                    ChatbotResponse(
+                        respuesta = "Esa categoría no se encuentra disponible. Las categorías disponibles son:\n\n" +
+                                   "**$categoriasTexto**\n\n" +
+                                   "Por favor, escribe una categoría válida.",
+                        tipoIntento = TipoIntento.Modificar_Rutina,
+                        tipoAccion = TipoAccion.Modificar
+                    )
+                }
+            }
+            
+            NutriAIStep.CHANGE_SHOW_FOODS -> {
+                val alimentoSeleccionado = message.trim()
+                val alimentosDisponibles = currentState.availableFoods ?: emptyList()
+                
+                // Verificar si el alimento existe
+                val alimentoValido = alimentosDisponibles.find { 
+                    it.nombreAlimento.equals(alimentoSeleccionado, ignoreCase = true) 
+                }
+                
+                if (alimentoValido != null) {
+                    conversationStates[userId] = currentState.copy(
+                        currentStep = NutriAIStep.CHANGE_SELECT_FOOD_QUANTITY,
+                        selectedFood = alimentoValido
+                    )
+                    ChatbotResponse(
+                        respuesta = "¿Qué cantidad de **${alimentoValido.nombreAlimento}** deseas registrar?\n" +
+                                   "(Solo ingresa el número: 1, 2, 3, 150, etc.)",
+                        tipoIntento = TipoIntento.Modificar_Rutina,
+                        tipoAccion = TipoAccion.Modificar
+                    )
+                } else {
+                    val alimentosTexto = alimentosDisponibles.joinToString("\n") { "• ${it.nombreAlimento}" }
+                    ChatbotResponse(
+                        respuesta = "Ese alimento no se encuentra disponible. Solo puedes elegir alimentos registrados en la base de datos.\n\n" +
+                                   "Los alimentos disponibles en la categoría **${currentState.selectedCategory}** son:\n\n" +
+                                   "$alimentosTexto\n\n" +
+                                   "Por favor, elige uno de la lista.",
+                        tipoIntento = TipoIntento.Modificar_Rutina,
+                        tipoAccion = TipoAccion.Modificar
+                    )
+                }
+            }
+            
+            NutriAIStep.CHANGE_SELECT_FOOD_QUANTITY -> {
+                val cantidadTexto = message.trim()
+                val alimentoSeleccionado = currentState.selectedFood
+                
+                if (alimentoSeleccionado != null) {
+                    // Validar que sea solo un número
+                    if (cantidadTexto.matches(Regex("\\d+(\\.\\d+)?"))) {
+                        // Obtener las unidades válidas para este alimento desde unidad_equivalencia
+                        val unidadesValidas = try {
+                            repository.obtenerUnidadesPorId(alimentoSeleccionado.idAlimento)
+                        } catch (e: Exception) {
+                            println("Error obteniendo unidades válidas: ${e.message}")
+                            emptyList<String>()
+                        }
+                        
+                        conversationStates[userId] = currentState.copy(
+                            currentStep = NutriAIStep.CHANGE_SELECT_MEAL_TIME,
+                            quantity = cantidadTexto,
+                            validUnits = if (unidadesValidas.isNotEmpty()) unidadesValidas else null
+                        )
+                        ChatbotResponse(
+                            respuesta = "Perfecto, **$cantidadTexto** de **${alimentoSeleccionado.nombreAlimento}**.\n\n" +
+                                       "🕐 **¿En qué momento del día deseas cambiar este alimento?**\n" +
+                                       "(Desayuno, Almuerzo, Cena, Snack)",
+                            tipoIntento = TipoIntento.Modificar_Rutina,
+                            tipoAccion = TipoAccion.Modificar
+                        )
+                    } else {
+                        ChatbotResponse(
+                            respuesta = "Por favor, ingresa solo un número para la cantidad.\n" +
+                                       "Ejemplo: 1, 2, 3, 150, etc.",
+                            tipoIntento = TipoIntento.Modificar_Rutina,
+                            tipoAccion = TipoAccion.Modificar
+                        )
+                    }
+                } else {
+                    conversationStates[userId] = ConversationState(userId, NutriAIStep.IDLE)
+                    ChatbotResponse(
+                        respuesta = "Lo siento, hubo un error. Por favor, intenta de nuevo.",
+                        tipoIntento = TipoIntento.Otros,
+                        tipoAccion = null
+                    )
+                }
+            }
+            
+            NutriAIStep.CHANGE_SELECT_MEAL_TIME -> {
+                val momentoDelDia = message.trim()
+                val momentosValidos = listOf("desayuno", "almuerzo", "cena", "snack")
+                
+                val momentoValido = momentosValidos.find { 
+                    it.equals(momentoDelDia, ignoreCase = true) 
+                }
+                
+                if (momentoValido != null) {
+                    conversationStates[userId] = currentState.copy(
+                        currentStep = NutriAIStep.CHANGE_SELECT_UNIT,
+                        mealTime = momentoValido.capitalize()
+                    )
+                    val alimentoSeleccionado = currentState.selectedFood
+                    val unidadesValidas = currentState.validUnits
+                    
+                    // Mostrar las unidades válidas si están disponibles
+                    val mensajeUnidades = if (!unidadesValidas.isNullOrEmpty()) {
+                        val unidadesTexto = unidadesValidas.joinToString(", ")
+                        "📏 **¿Cuál es la unidad de medida para ${alimentoSeleccionado?.nombreAlimento}?**\n\n" +
+                        "Unidades disponibles: **$unidadesTexto**\n\n" +
+                        "Por favor, elige una de las unidades listadas arriba."
+                    } else {
+                        "📏 **¿Cuál es la unidad de medida para ${alimentoSeleccionado?.nombreAlimento}?**\n" +
+                        "(Ejemplo: gramos, tazas, porciones, unidades, etc.)"
+                    }
+                    
+                    ChatbotResponse(
+                        respuesta = "Perfecto, **${momentoValido.capitalize()}**.\n\n$mensajeUnidades",
+                        tipoIntento = TipoIntento.Modificar_Rutina,
+                        tipoAccion = TipoAccion.Modificar
+                    )
+                } else {
+                    ChatbotResponse(
+                        respuesta = "Por favor, selecciona un momento del día válido:\n" +
+                                   "• **Desayuno**\n" +
+                                   "• **Almuerzo**\n" +
+                                   "• **Cena**\n" +
+                                   "• **Snack**",
+                        tipoIntento = TipoIntento.Modificar_Rutina,
+                        tipoAccion = TipoAccion.Modificar
+                    )
+                }
+            }
+            
+            NutriAIStep.CHANGE_SELECT_UNIT -> {
+                val unidad = message.trim().lowercase()
+                val alimentoSeleccionado = currentState.selectedFood
+                val cantidad = currentState.quantity
+                val momentoDelDia = currentState.mealTime
+                val alimentoOriginal = currentState.originalFood
+                val unidadesValidas = currentState.validUnits
+                
+                if (alimentoSeleccionado != null && cantidad != null && momentoDelDia != null) {
+                    // Validar que la unidad esté en la lista de unidades válidas
+                    if (!unidadesValidas.isNullOrEmpty()) {
+                        val unidadValida = unidadesValidas.find { 
+                            it.lowercase() == unidad 
+                        }
+                        
+                        if (unidadValida == null) {
+                            val unidadesTexto = unidadesValidas.joinToString(", ")
+                            ChatbotResponse(
+                                respuesta = "❌ La unidad **$unidad** no está disponible para **${alimentoSeleccionado.nombreAlimento}**.\n\n" +
+                                           "Las unidades válidas son: **$unidadesTexto**\n\n" +
+                                           "Por favor, elige una de las unidades listadas.",
+                                tipoIntento = TipoIntento.Modificar_Rutina,
+                                tipoAccion = TipoAccion.Modificar
+                            )
+                        } else {
+                            // Usar la unidad válida (con el formato correcto)
+                            conversationStates[userId] = currentState.copy(
+                                currentStep = NutriAIStep.CHANGE_CONFIRMATION_NEW,
+                                unit = unidadValida
+                            )
+                            ChatbotResponse(
+                                respuesta = "📋 **Resumen de tu cambio:**\n\n" +
+                                           "• **Alimento original:** $alimentoOriginal\n" +
+                                           "• **Nuevo alimento:** ${alimentoSeleccionado.nombreAlimento}\n" +
+                                           "• **Cantidad:** $cantidad\n" +
+                                           "• **Unidad:** $unidadValida\n" +
+                                           "• **Momento:** $momentoDelDia\n\n" +
+                                           "¿Deseas cambiar **$alimentoOriginal** por **${alimentoSeleccionado.nombreAlimento} - $cantidad $unidadValida**?\n\n" +
+                                           "💡 **Responde:**\n" +
+                                           "• **Sí** o **cambiar** para confirmar\n" +
+                                           "• **No** para cancelar",
+                                tipoIntento = TipoIntento.Modificar_Rutina,
+                                tipoAccion = TipoAccion.Modificar
+                            )
+                        }
+                    } else {
+                        // Si no hay unidades válidas disponibles, aceptar cualquier unidad (fallback)
+                        conversationStates[userId] = currentState.copy(
+                            currentStep = NutriAIStep.CHANGE_CONFIRMATION_NEW,
+                            unit = unidad
+                        )
+                        ChatbotResponse(
+                            respuesta = "📋 **Resumen de tu cambio:**\n\n" +
+                                       "• **Alimento original:** $alimentoOriginal\n" +
+                                       "• **Nuevo alimento:** ${alimentoSeleccionado.nombreAlimento}\n" +
+                                       "• **Cantidad:** $cantidad\n" +
+                                       "• **Unidad:** $unidad\n" +
+                                       "• **Momento:** $momentoDelDia\n\n" +
+                                       "¿Deseas cambiar **$alimentoOriginal** por **${alimentoSeleccionado.nombreAlimento} - $cantidad $unidad**?\n\n" +
+                                       "💡 **Responde:**\n" +
+                                       "• **Sí** o **cambiar** para confirmar\n" +
+                                       "• **No** para cancelar",
+                            tipoIntento = TipoIntento.Modificar_Rutina,
+                            tipoAccion = TipoAccion.Modificar
+                        )
+                    }
+                } else {
+                    conversationStates[userId] = ConversationState(userId, NutriAIStep.IDLE)
+                    ChatbotResponse(
+                        respuesta = "Lo siento, hubo un error. Por favor, intenta de nuevo.",
+                        tipoIntento = TipoIntento.Otros,
+                        tipoAccion = null
+                    )
+                }
+            }
+            
+            NutriAIStep.CHANGE_CONFIRMATION_NEW -> {
+                val lowerMessage = message.lowercase()
+                val alimentoSeleccionado = currentState.selectedFood
+                val cantidad = currentState.quantity
+                val unidad = currentState.unit
+                val momentoDelDia = currentState.mealTime
+                val alimentoOriginal = currentState.originalFood
+                
+                if (lowerMessage.contains("sí") || lowerMessage.contains("si") || lowerMessage.contains("confirmo") || 
+                    lowerMessage.contains("cambiar") || lowerMessage.contains("modificar")) {
+                    
+                    if (alimentoSeleccionado != null && cantidad != null && unidad != null && momentoDelDia != null && alimentoOriginal != null) {
+                        // Realizar el cambio en la base de datos
+                        val success = try {
+                            repository.cambiarAlimentoDesdeChatbot(
+                                idUsuario = userId,
+                                alimentoOriginal = alimentoOriginal,
+                                nuevoAlimento = alimentoSeleccionado.nombreAlimento,
+                                cantidad = cantidad,
+                                unidad = unidad,
+                                momentoDelDia = momentoDelDia
+                            )
+                        } catch (e: Exception) {
+                            println("Error cambiando alimento desde chatbot: ${e.message}")
+                            false
+                        }
+                        
+                        // Reset conversation state
+                        conversationStates[userId] = ConversationState(userId, NutriAIStep.IDLE)
+                        
+                        if (success) {
+                            // Notificar que la rutina se actualizó
+                            onRoutineUpdated?.invoke()
+                            
+                            ChatbotResponse(
+                                respuesta = "Perfecto, se ha cambiado tu alimento a **${alimentoSeleccionado.nombreAlimento}** – **$cantidad $unidad**.\n\n" +
+                                           "✅ **Tu rutina se ha actualizado correctamente.**\n\n" +
+                                           "¿Te gustaría hacer algún otro cambio en tu rutina o necesitas ayuda con algo más?",
+                                tipoIntento = TipoIntento.Modificar_Rutina,
+                                tipoAccion = TipoAccion.Modificar
+                            )
+                        } else {
+                            ChatbotResponse(
+                                respuesta = "Lo siento, hubo un problema al realizar el cambio en tu rutina.\n\n" +
+                                           "❌ **No se pudo actualizar la rutina.**\n\n" +
+                                           "Por favor, inténtalo de nuevo.",
+                                tipoIntento = TipoIntento.Otros,
+                                tipoAccion = null
+                            )
+                        }
+                    } else {
+                        conversationStates[userId] = ConversationState(userId, NutriAIStep.IDLE)
+                        ChatbotResponse(
+                            respuesta = "Lo siento, hubo un error. Por favor, intenta de nuevo.",
+                            tipoIntento = TipoIntento.Otros,
+                            tipoAccion = null
+                        )
+                    }
+                } else {
+                    // Reset conversation state
+                    conversationStates[userId] = ConversationState(userId, NutriAIStep.IDLE)
+                    ChatbotResponse(
+                        respuesta = "Entendido, no se realizará el cambio.\n\n" +
+                                   "¿Hay algo más en lo que pueda ayudarte con tu rutina nutricional?",
+                        tipoIntento = TipoIntento.Otros,
+                        tipoAccion = null
+                    )
+                }
+            }
+            
+            NutriAIStep.CHANGE_SELECT_FOOD -> {
+                // Este estado ya no se usa, se maneja en CHANGE_SHOW_FOODS
+                conversationStates[userId] = ConversationState(userId, NutriAIStep.IDLE)
+                ChatbotResponse(
+                    respuesta = "¿Hay algo más en lo que pueda ayudarte con tu rutina nutricional?",
+                    tipoIntento = TipoIntento.Otros,
+                    tipoAccion = null
+                )
+            }
+            
+            // Estados para el flujo de agregar alimento por categorías
+            NutriAIStep.ADD_SELECT_CATEGORY -> {
+                val categoriaSeleccionada = message.trim()
+                val categoriasDisponibles = currentState.availableCategories ?: emptyList()
+                
+                // Verificar si la categoría existe
+                val categoriaValida = categoriasDisponibles.find { 
+                    it.equals(categoriaSeleccionada, ignoreCase = true) 
+                }
+                
+                if (categoriaValida != null) {
+                    try {
+                        val alimentos = repository.obtenerAlimentosPorCategoriaParaChatbot(categoriaValida)
+                        if (alimentos.isNotEmpty()) {
+                            conversationStates[userId] = currentState.copy(
+                                currentStep = NutriAIStep.ADD_SHOW_FOODS,
+                                selectedCategory = categoriaValida,
+                                availableFoods = alimentos
+                            )
+                            val alimentosTexto = alimentos.joinToString("\n") { "• ${it.nombreAlimento}" }
+                            ChatbotResponse(
+                                respuesta = "En la categoría **$categoriaValida** se encuentran:\n\n" +
+                                           "$alimentosTexto\n\n" +
+                                           "Elige uno para agregar.",
+                                tipoIntento = TipoIntento.Modificar_Rutina,
+                                tipoAccion = TipoAccion.Agregar
+                            )
+                        } else {
+                            conversationStates[userId] = ConversationState(userId, NutriAIStep.IDLE)
+                            ChatbotResponse(
+                                respuesta = "Actualmente no hay alimentos disponibles en esa categoría.\n\n" +
+                                           "¿Te gustaría seleccionar otra categoría?",
+                                tipoIntento = TipoIntento.Modificar_Rutina,
+                                tipoAccion = TipoAccion.Agregar
+                            )
+                        }
+                    } catch (e: Exception) {
+                        println("Error obteniendo alimentos por categoría: ${e.message}")
+                        conversationStates[userId] = ConversationState(userId, NutriAIStep.IDLE)
+                        ChatbotResponse(
+                            respuesta = "Lo siento, hubo un problema al obtener los alimentos de esa categoría.\n\n" +
+                                       "¿Hay algo más en lo que pueda ayudarte?",
+                            tipoIntento = TipoIntento.Otros,
+                            tipoAccion = null
+                        )
+                    }
+                } else {
+                    val categoriasTexto = categoriasDisponibles.joinToString(", ")
+                    ChatbotResponse(
+                        respuesta = "Esa categoría no se encuentra disponible. Las categorías disponibles son:\n\n" +
+                                   "**$categoriasTexto**\n\n" +
+                                   "Por favor, selecciona una categoría válida.",
+                        tipoIntento = TipoIntento.Modificar_Rutina,
+                        tipoAccion = TipoAccion.Agregar
+                    )
+                }
+            }
+            
+            NutriAIStep.ADD_SHOW_FOODS -> {
+                val alimentoSeleccionado = message.trim()
+                val alimentosDisponibles = currentState.availableFoods ?: emptyList()
+                
+                // Verificar si el alimento existe
+                val alimentoValido = alimentosDisponibles.find { 
+                    it.nombreAlimento.equals(alimentoSeleccionado, ignoreCase = true) 
+                }
+                
+                if (alimentoValido != null) {
+                    conversationStates[userId] = currentState.copy(
+                        currentStep = NutriAIStep.ADD_SELECT_FOOD_QUANTITY,
+                        selectedFood = alimentoValido
+                    )
+                    ChatbotResponse(
+                        respuesta = "¿Qué cantidad de **${alimentoValido.nombreAlimento}** deseas agregar?\n" +
+                                   "(Solo ingresa el número: 1, 2, 3, 150, etc.)",
+                        tipoIntento = TipoIntento.Modificar_Rutina,
+                        tipoAccion = TipoAccion.Agregar
+                    )
+                } else {
+                    val alimentosTexto = alimentosDisponibles.joinToString("\n") { "• ${it.nombreAlimento}" }
+                    ChatbotResponse(
+                        respuesta = "Ese alimento no se encuentra en la base de datos. Solo puedes elegir alimentos registrados.\n\n" +
+                                   "Los alimentos disponibles en la categoría **${currentState.selectedCategory}** son:\n\n" +
+                                   "$alimentosTexto\n\n" +
+                                   "Por favor, elige uno de la lista.",
+                        tipoIntento = TipoIntento.Modificar_Rutina,
+                        tipoAccion = TipoAccion.Agregar
+                    )
+                }
+            }
+            
+            NutriAIStep.ADD_SELECT_FOOD_QUANTITY -> {
+                val cantidadTexto = message.trim()
+                val alimentoSeleccionado = currentState.selectedFood
+                
+                if (alimentoSeleccionado != null) {
+                    // Validar que sea solo un número
+                    if (cantidadTexto.matches(Regex("\\d+(\\.\\d+)?"))) {
+                        // Obtener las unidades válidas para este alimento desde unidad_equivalencia
+                        val unidadesValidas = try {
+                            repository.obtenerUnidadesPorId(alimentoSeleccionado.idAlimento)
+                        } catch (e: Exception) {
+                            println("Error obteniendo unidades válidas: ${e.message}")
+                            emptyList<String>()
+                        }
+                        
+                        conversationStates[userId] = currentState.copy(
+                            currentStep = NutriAIStep.ADD_SELECT_MEAL_TIME,
+                            quantity = cantidadTexto,
+                            validUnits = if (unidadesValidas.isNotEmpty()) unidadesValidas else null
+                        )
+                        ChatbotResponse(
+                            respuesta = "Perfecto, **$cantidadTexto** de **${alimentoSeleccionado.nombreAlimento}**.\n\n" +
+                                       "🕐 **¿En qué momento del día deseas agregar este alimento?**\n" +
+                                       "(Desayuno, Almuerzo, Cena, Snack)",
+                            tipoIntento = TipoIntento.Modificar_Rutina,
+                            tipoAccion = TipoAccion.Agregar
+                        )
+                    } else {
+                        ChatbotResponse(
+                            respuesta = "Por favor, ingresa solo un número para la cantidad.\n" +
+                                       "Ejemplo: 1, 2, 3, 150, etc.",
+                            tipoIntento = TipoIntento.Modificar_Rutina,
+                            tipoAccion = TipoAccion.Agregar
+                        )
+                    }
+                } else {
+                    conversationStates[userId] = ConversationState(userId, NutriAIStep.IDLE)
+                    ChatbotResponse(
+                        respuesta = "Lo siento, hubo un error. Por favor, intenta de nuevo.",
+                        tipoIntento = TipoIntento.Otros,
+                        tipoAccion = null
+                    )
+                }
+            }
+            
+            NutriAIStep.ADD_SELECT_MEAL_TIME -> {
+                val momentoDelDia = message.trim()
+                val momentosValidos = listOf("desayuno", "almuerzo", "cena", "snack")
+                
+                val momentoValido = momentosValidos.find { 
+                    it.equals(momentoDelDia, ignoreCase = true) 
+                }
+                
+                if (momentoValido != null) {
+                    conversationStates[userId] = currentState.copy(
+                        currentStep = NutriAIStep.ADD_SELECT_UNIT,
+                        mealTime = momentoValido.capitalize()
+                    )
+                    val alimentoSeleccionado = currentState.selectedFood
+                    val unidadesValidas = currentState.validUnits
+                    
+                    // Mostrar las unidades válidas si están disponibles
+                    val mensajeUnidades = if (!unidadesValidas.isNullOrEmpty()) {
+                        val unidadesTexto = unidadesValidas.joinToString(", ")
+                        "📏 **¿Cuál es la unidad de medida para ${alimentoSeleccionado?.nombreAlimento}?**\n\n" +
+                        "Unidades disponibles: **$unidadesTexto**\n\n" +
+                        "Por favor, elige una de las unidades listadas arriba."
+                    } else {
+                        "📏 **¿Cuál es la unidad de medida para ${alimentoSeleccionado?.nombreAlimento}?**\n" +
+                        "(Ejemplo: gramos, tazas, porciones, unidades, etc.)"
+                    }
+                    
+                    ChatbotResponse(
+                        respuesta = "Perfecto, **${momentoValido.capitalize()}**.\n\n$mensajeUnidades",
+                        tipoIntento = TipoIntento.Modificar_Rutina,
+                        tipoAccion = TipoAccion.Agregar
+                    )
+                } else {
+                    ChatbotResponse(
+                        respuesta = "Por favor, selecciona un momento del día válido:\n" +
+                                   "• **Desayuno**\n" +
+                                   "• **Almuerzo**\n" +
+                                   "• **Cena**\n" +
+                                   "• **Snack**",
+                        tipoIntento = TipoIntento.Modificar_Rutina,
+                        tipoAccion = TipoAccion.Agregar
+                    )
+                }
+            }
+            
+            NutriAIStep.ADD_SELECT_UNIT -> {
+                val unidad = message.trim().lowercase()
+                val alimentoSeleccionado = currentState.selectedFood
+                val cantidad = currentState.quantity
+                val momentoDelDia = currentState.mealTime
+                val unidadesValidas = currentState.validUnits
+                
+                if (alimentoSeleccionado != null && cantidad != null && momentoDelDia != null) {
+                    // Validar que la unidad esté en la lista de unidades válidas
+                    if (!unidadesValidas.isNullOrEmpty()) {
+                        val unidadValida = unidadesValidas.find { 
+                            it.lowercase() == unidad 
+                        }
+                        
+                        if (unidadValida == null) {
+                            val unidadesTexto = unidadesValidas.joinToString(", ")
+                            ChatbotResponse(
+                                respuesta = "❌ La unidad **$unidad** no está disponible para **${alimentoSeleccionado.nombreAlimento}**.\n\n" +
+                                           "Las unidades válidas son: **$unidadesTexto**\n\n" +
+                                           "Por favor, elige una de las unidades listadas.",
+                                tipoIntento = TipoIntento.Modificar_Rutina,
+                                tipoAccion = TipoAccion.Agregar
+                            )
+                        } else {
+                            // Usar la unidad válida (con el formato correcto)
+                            conversationStates[userId] = currentState.copy(
+                                currentStep = NutriAIStep.ADD_CONFIRMATION,
+                                unit = unidadValida
+                            )
+                            ChatbotResponse(
+                                respuesta = "📋 **Resumen de tu solicitud:**\n\n" +
+                                           "• **Alimento:** ${alimentoSeleccionado.nombreAlimento}\n" +
+                                           "• **Cantidad:** $cantidad\n" +
+                                           "• **Unidad:** $unidadValida\n" +
+                                           "• **Momento:** $momentoDelDia\n\n" +
+                                           "¿Deseas agregar **${alimentoSeleccionado.nombreAlimento} - $cantidad $unidadValida** a tu rutina nutricional?\n\n" +
+                                           "💡 **Responde:**\n" +
+                                           "• **Sí** o **agregar** para confirmar\n" +
+                                           "• **No** para cancelar",
+                                tipoIntento = TipoIntento.Modificar_Rutina,
+                                tipoAccion = TipoAccion.Agregar
+                            )
+                        }
+                    } else {
+                        // Si no hay unidades válidas disponibles, aceptar cualquier unidad (fallback)
+                        conversationStates[userId] = currentState.copy(
+                            currentStep = NutriAIStep.ADD_CONFIRMATION,
+                            unit = unidad
+                        )
+                        ChatbotResponse(
+                            respuesta = "📋 **Resumen de tu solicitud:**\n\n" +
+                                       "• **Alimento:** ${alimentoSeleccionado.nombreAlimento}\n" +
+                                       "• **Cantidad:** $cantidad\n" +
+                                       "• **Unidad:** $unidad\n" +
+                                       "• **Momento:** $momentoDelDia\n\n" +
+                                       "¿Deseas agregar **${alimentoSeleccionado.nombreAlimento} - $cantidad $unidad** a tu rutina nutricional?\n\n" +
+                                       "💡 **Responde:**\n" +
+                                       "• **Sí** o **agregar** para confirmar\n" +
+                                       "• **No** para cancelar",
+                            tipoIntento = TipoIntento.Modificar_Rutina,
+                            tipoAccion = TipoAccion.Agregar
+                        )
+                    }
+                } else {
+                    conversationStates[userId] = ConversationState(userId, NutriAIStep.IDLE)
+                    ChatbotResponse(
+                        respuesta = "Lo siento, hubo un error. Por favor, intenta de nuevo.",
+                        tipoIntento = TipoIntento.Otros,
+                        tipoAccion = null
+                    )
+                }
+            }
+            
+            NutriAIStep.ADD_CONFIRMATION -> {
+                val lowerMessage = message.lowercase()
+                val alimentoSeleccionado = currentState.selectedFood
+                val cantidad = currentState.quantity
+                val unidad = currentState.unit
+                val momentoDelDia = currentState.mealTime
+                
+                if (lowerMessage.contains("sí") || lowerMessage.contains("si") || lowerMessage.contains("confirmo") || 
+                    lowerMessage.contains("agregar") || lowerMessage.contains("añadir")) {
+                    
+                    if (alimentoSeleccionado != null && cantidad != null && unidad != null && momentoDelDia != null) {
+                        // Realizar el agregado en la base de datos
+                        val success = try {
+                            repository.agregarAlimentoDesdeChatbot(
+                                idUsuario = userId,
+                                nombreAlimento = alimentoSeleccionado.nombreAlimento,
+                                cantidad = cantidad,
+                                unidad = unidad,
+                                momentoDelDia = momentoDelDia
+                            )
+                        } catch (e: Exception) {
+                            println("Error agregando alimento desde chatbot: ${e.message}")
+                            false
+                        }
+                        
+                        // Reset conversation state
+                        conversationStates[userId] = ConversationState(userId, NutriAIStep.IDLE)
+                        
+                        if (success) {
+                            // Notificar que la rutina se actualizó
+                            onRoutineUpdated?.invoke()
+                            
+                            ChatbotResponse(
+                                respuesta = "Excelente, se ha agregado **${alimentoSeleccionado.nombreAlimento}** – **$cantidad $unidad** a tu plan alimenticio.\n\n" +
+                                           "✅ **Tu rutina se ha actualizado correctamente.**\n\n" +
+                                           "¿Te gustaría agregar otro alimento o necesitas ayuda con algo más?",
+                                tipoIntento = TipoIntento.Modificar_Rutina,
+                                tipoAccion = TipoAccion.Agregar
+                            )
+                        } else {
+                            ChatbotResponse(
+                                respuesta = "Lo siento, hubo un problema al agregar el alimento a tu rutina.\n\n" +
+                                           "❌ **No se pudo agregar el alimento.**\n\n" +
+                                           "Por favor, inténtalo de nuevo.",
+                                tipoIntento = TipoIntento.Otros,
+                                tipoAccion = null
+                            )
+                        }
+                    } else {
+                        conversationStates[userId] = ConversationState(userId, NutriAIStep.IDLE)
+                        ChatbotResponse(
+                            respuesta = "Lo siento, hubo un error. Por favor, intenta de nuevo.",
+                            tipoIntento = TipoIntento.Otros,
+                            tipoAccion = null
+                        )
+                    }
+                } else {
+                    // Reset conversation state
+                    conversationStates[userId] = ConversationState(userId, NutriAIStep.IDLE)
+                    ChatbotResponse(
+                        respuesta = "Entendido, no se agregará el alimento.\n\n" +
+                                   "¿Hay algo más en lo que pueda ayudarte con tu rutina nutricional?",
+                        tipoIntento = TipoIntento.Otros,
+                        tipoAccion = null
+                    )
+                }
+            }
+            
+            NutriAIStep.ADD_SELECT_FOOD -> {
+                // Este estado ya no se usa
+                conversationStates[userId] = ConversationState(userId, NutriAIStep.IDLE)
+                ChatbotResponse(
+                    respuesta = "¿Hay algo más en lo que pueda ayudarte con tu rutina nutricional?",
+                    tipoIntento = TipoIntento.Otros,
+                    tipoAccion = null
+                )
             }
             
             else -> null
