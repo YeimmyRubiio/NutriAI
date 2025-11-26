@@ -122,7 +122,8 @@ fun DropdownSelector(
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
     onItemSelected: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
 ) {
     var textFieldSize by remember { mutableStateOf(IntSize.Zero) }
 
@@ -137,7 +138,7 @@ fun DropdownSelector(
                 modifier = Modifier
                     .fillMaxWidth()
                     .onGloballyPositioned { textFieldSize = it.size }
-                    .clickable { onExpandedChange(!expanded) }
+                    .clickable(enabled = enabled) { if (enabled) onExpandedChange(!expanded) }
                     .padding(horizontal = 16.dp, vertical = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
@@ -145,7 +146,9 @@ fun DropdownSelector(
                 Text(
                     text = if (selected.isEmpty()) label else selected,
                     style = MaterialTheme.typography.bodyLarge,
-                    color = if (selected.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
+                    color = if (!enabled) MaterialTheme.colorScheme.onSurfaceVariant 
+                           else if (selected.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant 
+                           else MaterialTheme.colorScheme.onSurface
                 )
                 Icon(
                     imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,

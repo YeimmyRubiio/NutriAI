@@ -28,9 +28,13 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -232,6 +236,38 @@ fun ChatbotHeader(onDismiss: () -> Unit) {
     }
 }
 
+// Función para convertir HTML simple a AnnotatedString
+fun parseHtmlToAnnotatedString(html: String, defaultColor: Color): AnnotatedString {
+    return buildAnnotatedString {
+        var currentIndex = 0
+        val text = html
+        
+        while (currentIndex < text.length) {
+            val boldStart = text.indexOf("<b>", currentIndex)
+            val boldEnd = if (boldStart != -1) text.indexOf("</b>", boldStart) else -1
+            
+            if (boldStart == -1 || boldEnd == -1) {
+                // No hay más etiquetas, agregar el resto del texto
+                append(text.substring(currentIndex))
+                break
+            }
+            
+            // Agregar texto antes de la etiqueta
+            if (boldStart > currentIndex) {
+                append(text.substring(currentIndex, boldStart))
+            }
+            
+            // Agregar texto en negrita
+            val boldText = text.substring(boldStart + 3, boldEnd)
+            withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                append(boldText)
+            }
+            
+            currentIndex = boldEnd + 4
+        }
+    }
+}
+
 @Composable
 fun ChatBubble(message: ChatMessage) {
     Row(
@@ -278,13 +314,14 @@ fun ChatBubble(message: ChatMessage) {
                     bottomEnd = if (message.isFromUser) 20.dp else 4.dp
                 )
             ) {
+                val textColor = if (message.isFromUser) 
+                    Color.White 
+                else Color(0xFF424242)
+                
                 Text(
-                    text = message.message,
-                    color = if (message.isFromUser) 
-                        Color.White 
-                    else Color(0xFF424242),
+                    text = parseHtmlToAnnotatedString(message.message, textColor),
+                    color = textColor,
                     style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(16.dp)
                 )
             }
@@ -421,7 +458,7 @@ fun QuickActions(onSendMessage: (String) -> Unit) {
             shape = RoundedCornerShape(16.dp)
         ) {
             Text(
-                text = "📋 Selecciona una opción para continuar",
+                text = "📋 Seleccione una opción para continuar",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = Color(0xFF2E7D32),
@@ -433,10 +470,10 @@ fun QuickActions(onSendMessage: (String) -> Unit) {
         Spacer(modifier = Modifier.height(12.dp))
         
         val quickActions = listOf(
-            "💡 Aclara tus dudas sobre alimentación y bienestar" to Icons.Default.Quiz,
-            "🍎 Sugerir alimentos adecuados" to Icons.Default.Restaurant,
-            "📅 Mostrar rutina nutricional" to Icons.Default.CalendarToday,
-            "🎯 Generar rutina personalizada" to Icons.Default.AutoAwesome
+            "💡 Aclarar sus dudas sobre alimentación y bienestar" to Icons.Default.Quiz,
+            "🍎 Sugerir alimentos acordes a su perfil" to Icons.Default.Restaurant,
+            "📅 Mostrar su rutina nutricional actual" to Icons.Default.CalendarToday,
+            "🎯 Generar una rutina personalizada para usted" to Icons.Default.AutoAwesome
         )
         
         quickActions.forEach { (action, icon) ->
@@ -559,7 +596,7 @@ fun MessageInput(
             enabled = enabled,
             placeholder = {
                 Text(
-                    text = if (enabled) "Escribe tu mensaje..." else "Escribe aquí tu consulta...",
+                    text = if (enabled) "Escriba su mensaje..." else "Escriba aquí su consulta...",
                     color = if (enabled) Color(0xFF9E9E9E) else Color(0xFF4CAF50),
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center

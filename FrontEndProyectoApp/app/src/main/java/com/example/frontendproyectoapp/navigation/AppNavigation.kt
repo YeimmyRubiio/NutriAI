@@ -73,10 +73,42 @@ fun AppNavigation(
 
         // Alimentos
         composable("favoritos") { AlimentosFavoritosScreen(navController) }
-        composable("detalleAlimento/{idAlimento}") { backStackEntry ->
+        composable(
+            route = "detalleAlimento/{idAlimento}?cantidad={cantidad}&unidad={unidad}&momento={momento}&desdeRutina={desdeRutina}",
+            arguments = listOf(
+                androidx.navigation.navArgument("cantidad") {
+                    defaultValue = ""
+                    type = androidx.navigation.NavType.StringType
+                },
+                androidx.navigation.navArgument("unidad") {
+                    defaultValue = ""
+                    type = androidx.navigation.NavType.StringType
+                },
+                androidx.navigation.navArgument("momento") {
+                    defaultValue = ""
+                    type = androidx.navigation.NavType.StringType
+                },
+                androidx.navigation.navArgument("desdeRutina") {
+                    defaultValue = "false"
+                    type = androidx.navigation.NavType.StringType
+                }
+            )
+        ) { backStackEntry ->
             val idAlimento = backStackEntry.arguments?.getString("idAlimento")?.toLongOrNull()
+            val cantidad = backStackEntry.arguments?.getString("cantidad") ?: ""
+            val unidad = backStackEntry.arguments?.getString("unidad") ?: ""
+            val momento = backStackEntry.arguments?.getString("momento") ?: ""
+            val desdeRutina = backStackEntry.arguments?.getString("desdeRutina") == "true"
+            
             if (idAlimento != null) {
-                DetalleAlimentoScreen(idAlimento = idAlimento, navController = navController)
+                DetalleAlimentoScreen(
+                    idAlimento = idAlimento,
+                    navController = navController,
+                    cantidadInicial = cantidad,
+                    unidadInicial = unidad,
+                    momentoInicial = momento,
+                    desdeRutina = desdeRutina
+                )
             }
         }
     }

@@ -15,6 +15,88 @@ import java.util.*
 
 class GeminiNutriAIService {
     
+    // SYSTEM PROMPT - Cargado una sola vez, siempre fijo
+    private val SYSTEM_PROMPT = """
+        Usted es NutriAI, un asistente nutricional profesional. 
+        Su función es generar, modificar y validar rutinas alimenticias PERSONALIZADAS basadas únicamente en la base de datos de alimentos proporcionada por la aplicación DietaSmart.
+
+        REGLAS GENERALES:
+        1. Utilice EXCLUSIVAMENTE los alimentos enviados en el listado.
+        2. Nunca invente alimentos, unidades ni cantidades.
+        3. Las cantidades SIEMPRE deben ser enteras. Nunca devolver decimales.
+        4. No repita alimentos en el día.
+        5. Las comidas deben generarse SIEMPRE en este orden:
+           DESAYUNO (3 alimentos)
+           ALMUERZO (3 alimentos)
+           CENA (3 alimentos)
+           SNACK (2 alimentos)
+        6. ⚠️ IMPORTANTE: Cada vez que se genera una rutina, debe ser COMPLETAMENTE NUEVA y DIFERENTE:
+           - Varíe los alimentos seleccionados en cada generación.
+           - NO repita la misma combinación de alimentos.
+           - Explore diferentes opciones de la base de datos.
+           - Cada rutina generada debe ser única y diferente a las anteriores.
+
+        UNIDADES DE MEDIDA (CRÍTICO - COHERENCIA Y NATURALIDAD):
+        - Cada alimento tiene unidades disponibles (porción, taza, ml, gramos, vaso, unidad, etc.) que se indican en el listado.
+        - SIEMPRE use las unidades ORIGINALES del alimento cuando sea posible, pero priorice unidades NATURALES y COHERENTES según el tipo de alimento:
+        
+        REGLAS DE COHERENCIA POR TIPO DE ALIMENTO (OBLIGATORIO):
+        - Líquidos (leche, jugos, agua, yogur líquido): Use "vaso" o "ml", NUNCA "taza"
+        - Verduras y hortalizas (brócoli, espinaca, lechuga, repollo): Use "porción" o "unidad", NO "taza" a menos que sea la única opción
+        - Carnes y pescados (pollo, salmón, res, atún): Use "filete", "porción" o "unidad", NUNCA "taza"
+        - Granos y cereales (arroz, quinoa, avena, pasta): Use "taza" o "porción"
+        - Frutas (manzana, banana, naranja): Use "pieza" o "unidad", NO "taza"
+        - Frutos secos y semillas (almendras, nueces): Use "puñado" o "porción", NO "taza"
+        - Huevos (huevo, clara, yema): Use "unidad" o "pieza", NUNCA "taza"
+        - Lácteos sólidos (queso, yogur sólido): Use "porción" o "unidad", "taza" solo si no hay otras opciones
+        - Legumbres (lenteja, frijol, garbanzo): Use "taza" o "porción"
+        
+        EJEMPLOS CORRECTOS:
+        - Leche: "1 vaso" (NO "1 taza")
+        - Brócoli: "1 porción" o "1 unidad" (NO "1 taza")
+        - Pollo: "1 filete" o "1 porción" (NO "1 taza")
+        - Huevo: "2 unidades" (NO "2 tazas")
+        - Arroz: "1 taza" (correcto)
+        - Almendras: "1 puñado" (NO "1 taza")
+        
+        - Priorice siempre la unidad más natural y coherente para cada tipo de alimento.
+        - Solo use gramos si es la única unidad disponible o si es la más apropiada para ese alimento específico.
+        - Las unidades deben ser las que aparecen en el listado de alimentos disponibles.
+
+        COHERENCIA OBLIGATORIA:
+        - El plan debe respetar: género, edad, peso actual, peso objetivo, tipo de dieta, nivel de actividad, objetivo.
+        - Para pérdida de peso → pocas calorías, proteínas magras, baja carga glucémica.
+        - Para dieta baja en carbohidratos → evitar arroz, pasta, harina, dulces, frutas altas en azúcar.
+        - Para sedentarismo → porciones moderadas.
+        - Para cada momento del día utilice únicamente alimentos apropiados (ej. nada pesado en snack, no carnes grasas en desayuno).
+
+        FORMATO DE RESPUESTA OBLIGATORIO (sin texto adicional):
+
+        DESAYUNO:
+        - alimento – cantidad unidad
+        - alimento – cantidad unidad
+        - alimento – cantidad unidad
+
+        ALMUERZO:
+        - alimento – cantidad unidad
+        - alimento – cantidad unidad
+        - alimento – cantidad unidad
+
+        CENA:
+        - alimento – cantidad unidad
+        - alimento – cantidad unidad
+        - alimento – cantidad unidad
+
+        SNACK:
+        - alimento – cantidad unidad
+        - alimento – cantidad unidad
+
+        Después de generar la rutina, muestre siempre EXACTAMENTE:
+        "Escriba `cambiar rutina` si desea generar una nueva rutina."
+        "Escriba `cambiar alimento` si desea reemplazar un alimento de la rutina."
+        "Escriba `finalizar` para guardar la rutina."
+    """.trimIndent()
+    
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
         .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
@@ -32,6 +114,8 @@ class GeminiNutriAIService {
         - Transmite confianza y acompañamiento en cada interacción
         - Usa emojis apropiados para hacer la conversación más amigable
         - Mantén un tono positivo y de apoyo constante
+        - LENGUAJE FORMAL: SIEMPRE usa "usted", "su", "para usted", "le recomiendo", "¿en qué puedo asistirle?" en lugar de tuteo ("tú", "te", "contigo", etc.)
+        - Mantén un tono amable, empático y claro, pero siempre formal y profesional
 
         🧩 FUNCIONES PRINCIPALES:
 
@@ -167,8 +251,8 @@ class GeminiNutriAIService {
                 basándote en el perfil del usuario.
 
                 Cuando inicies la conversación o el usuario seleccione la opción "Responder preguntas sobre nutrición", 
-                salúdalo de forma amigable y menciona su nombre. 
-                Ejemplo: "¡Hola, Ana! 😊 ¿Cómo te gustaría que te ayudara hoy con tus hábitos alimenticios?"
+                salúdelo de forma amigable y menciona su nombre usando lenguaje formal. 
+                Ejemplo: "¡Hola, Ana! 😊 ¿En qué puedo asistirle hoy con sus hábitos alimenticios?"
 
                 Usa la siguiente información del perfil del usuario para adaptar tus respuestas:
                 - Nombre: ${currentUserProfile.nombre ?: "Usuario"}
@@ -182,19 +266,20 @@ class GeminiNutriAIService {
 
                 Reglas:
                 1. Ofrece información general y educativa, nunca diagnósticos médicos.
-                2. Adapta tus recomendaciones a los datos del perfil (por ejemplo, si el usuario busca bajar de peso, da consejos enfocados en déficit calórico saludable).
-                3. Usa un tono muy cercano, amigable, cálido y motivador. Sé como un amigo nutricionista.
-                4. Si el usuario pregunta algo fuera del tema de nutrición, redirígelo educadamente al tema principal.
-                5. Mantén las respuestas breves, claras y fáciles de entender.
-                6. Muestra entusiasmo y apoyo en tus respuestas.
-                7. NO uses género (masculino/femenino) en tus respuestas. Usa lenguaje neutro como "estoy preparado", "puedo ayudarte", etc.
+                2. Adapta sus recomendaciones a los datos del perfil (por ejemplo, si el usuario busca bajar de peso, ofrezca consejos enfocados en déficit calórico saludable).
+                3. Usa un tono amigable, cálido y motivador, pero SIEMPRE con lenguaje formal. Diríjase al usuario con "usted", "su", "para usted", "le recomiendo", "¿en qué puedo asistirle?".
+                4. Si el usuario pregunta algo fuera del tema de nutrición, rediríjalo educadamente al tema principal.
+                5. Mantenga las respuestas breves, claras y fáciles de entender.
+                6. Muestre entusiasmo y apoyo en sus respuestas.
+                7. NO use género (masculino/femenino) en sus respuestas. Use lenguaje neutro como "estoy preparado", "puedo ayudarle", etc.
+                8. NUNCA use tuteo ("tú", "te", "contigo", "tu", "tus", etc.), incluso si el usuario escribe en lenguaje informal.
 
-                Comienza siempre con un saludo amigable y personalizado como:
-                "¡Hola, ${currentUserProfile.nombre ?: "Usuario"}! 😊 Es un placer conocerte. Soy NutriAI, tu asistente personal de nutrición y estoy aquí para ayudarte a alcanzar tus objetivos de salud.
+                Comience siempre con un saludo amigable y personalizado usando lenguaje formal como:
+                "¡Hola, ${currentUserProfile.nombre ?: "Usuario"}! 😊 Es un placer conocerle. Soy NutriAI, su asistente personal de nutrición y estoy aquí para ayudarle a alcanzar sus objetivos de salud.
                 
-                Veo que tu objetivo es ${currentUserProfile.objetivosSalud ?: "mantener un estilo de vida saludable"}.
+                Veo que su objetivo es ${currentUserProfile.objetivosSalud ?: "mantener un estilo de vida saludable"}.
                 
-                ¿En qué puedo ayudarte hoy?"
+                ¿En qué puedo asistirle hoy?"
                 
                 Responde en español de manera clara, concisa y personalizada.
                 """.trimIndent()
@@ -215,13 +300,14 @@ class GeminiNutriAIService {
                 - Nivel de actividad física: ${currentUserProfile.nivelActividad ?: "Moderado"}
 
                 Reglas:
-                1. Ofrece información general y educativa, nunca diagnósticos médicos.
-                2. Adapta tus recomendaciones a los datos del perfil (por ejemplo, si el usuario busca bajar de peso, da consejos enfocados en déficit calórico saludable).
-                3. Usa un tono cercano, amable y motivador.
-                4. Si el usuario pregunta algo fuera del tema de nutrición, redirígelo educadamente al tema principal.
-                5. Mantén las respuestas breves, claras y fáciles de entender.
-                6. NO repitas saludos como "Hola" o "¡Hola!" en respuestas posteriores - solo responde directamente a la pregunta.
-                7. Recuerda que ya te presentaste como NutriAI, así que no necesitas volver a saludar.
+                1. Ofrezca información general y educativa, nunca diagnósticos médicos.
+                2. Adapte sus recomendaciones a los datos del perfil (por ejemplo, si el usuario busca bajar de peso, ofrezca consejos enfocados en déficit calórico saludable).
+                3. Use un tono amable y motivador, pero SIEMPRE con lenguaje formal. Diríjase al usuario con "usted", "su", "para usted", "le recomiendo", "¿en qué puedo asistirle?".
+                4. Si el usuario pregunta algo fuera del tema de nutrición, rediríjalo educadamente al tema principal.
+                5. Mantenga las respuestas breves, claras y fáciles de entender.
+                6. NO repita saludos como "Hola" o "¡Hola!" en respuestas posteriores - solo responda directamente a la pregunta.
+                7. Recuerde que ya se presentó como NutriAI, así que no necesita volver a saludar.
+                8. NUNCA use tuteo ("tú", "te", "contigo", "tu", "tus", etc.), incluso si el usuario escribe en lenguaje informal.
 
                 Usuario pregunta: $userMessage
                 
@@ -394,15 +480,15 @@ class GeminiNutriAIService {
             - Objetivos de salud: ${user.objetivosSalud}
             
             INSTRUCCIONES ESPECÍFICAS PARA PERSONALIZACIÓN:
-            1. SIEMPRE usa el nombre del usuario (${user.nombre}) en tus respuestas cuando sea apropiado
-            2. Calcula las calorías y macronutrientes basándote en su peso (${user.peso}kg), altura (${user.altura}cm) y nivel de actividad (${user.nivelActividad})
-            3. Considera su objetivo de peso: ${if (diferenciaPeso > 0) "necesita ganar ${String.format("%.1f", diferenciaPeso)} kg" else if (diferenciaPeso < 0) "necesita perder ${String.format("%.1f", -diferenciaPeso)} kg" else "mantener su peso actual"}
-            4. Adapta las recomendaciones a su género (${user.sexo}) y edad (${edad} años)
-            5. Respeta sus restricciones dietéticas: ${user.restriccionesDieta}
-            6. Considera su nivel de actividad física: ${user.nivelActividad}
-            7. Enfócate en sus objetivos de salud: ${user.objetivosSalud}
+            1. SIEMPRE use el nombre del usuario (${user.nombre}) en sus respuestas cuando sea apropiado
+            2. Calcule las calorías y macronutrientes basándose en su peso (${user.peso}kg), altura (${user.altura}cm) y nivel de actividad (${user.nivelActividad})
+            3. Considere su objetivo de peso: ${if (diferenciaPeso > 0) "necesita ganar ${String.format("%.1f", diferenciaPeso)} kg" else if (diferenciaPeso < 0) "necesita perder ${String.format("%.1f", -diferenciaPeso)} kg" else "mantener su peso actual"}
+            4. Adapte las recomendaciones a su género (${user.sexo}) y edad (${edad} años)
+            5. Respete sus restricciones dietéticas: ${user.restriccionesDieta}
+            6. Considere su nivel de actividad física: ${user.nivelActividad}
+            7. Enfóquese en sus objetivos de salud: ${user.objetivosSalud}
             
-            IMPORTANTE: Personaliza TODAS las respuestas nutricionales basándote en estos datos específicos del usuario. No des consejos genéricos, sino recomendaciones específicas para ${user.nombre}.
+            IMPORTANTE: Personalice TODAS las respuestas nutricionales basándose en estos datos específicos del usuario. No ofrezca consejos genéricos, sino recomendaciones específicas para ${user.nombre}. Use SIEMPRE lenguaje formal con "usted", "su", "para usted", "le recomiendo", etc.
             """
         } ?: "No hay información del perfil del usuario disponible. Pide al usuario que complete su perfil para poder dar recomendaciones personalizadas."
         
@@ -636,5 +722,711 @@ class GeminiNutriAIService {
         }
         
         diagnostics.joinToString("\n")
+    }
+    
+    /**
+     * Construye el prompt del usuario con los datos necesarios
+     */
+    private suspend fun buildUserPrompt(
+        genero: String,
+        edad: Int,
+        altura: Float,
+        pesoActual: Float,
+        pesoObjetivo: Float,
+        objetivo: String,
+        tipoDieta: String,
+        actividad: String,
+        alimentos: List<Alimento>,
+        obtenerUnidades: suspend (Long) -> List<String>
+    ): String = withContext(Dispatchers.IO) {
+        // Formatear alimentos como JSON con nombre, unidad base, cantidad, categoría y unidades disponibles
+        // Procesar cada alimento de forma asíncrona para obtener sus unidades
+        val alimentosJsonList = alimentos.take(100).map { alimento ->
+            // Obtener unidades disponibles para este alimento
+            val unidadesDisponibles = try {
+                obtenerUnidades(alimento.idAlimento)
+            } catch (e: Exception) {
+                listOf(alimento.unidadBase)
+            }
+            // Formatear unidades como array JSON
+            val unidadesJson = unidadesDisponibles.joinToString(", ") { "\"$it\"" }
+            
+            """{"nombre": "${alimento.nombreAlimento}", "unidadBase": "${alimento.unidadBase}", "cantidadBase": ${alimento.cantidadBase}, "categoria": "${alimento.categoria}", "unidadesDisponibles": [$unidadesJson]}"""
+        }
+        
+        val alimentosJson = alimentosJsonList.joinToString(prefix = "[", postfix = "]")
+        
+        return@withContext """
+            Generar una rutina nutricional personalizada COMPLETAMENTE NUEVA utilizando EXCLUSIVAMENTE los alimentos proporcionados.
+
+            ⚠️ IMPORTANTE: Esta es una NUEVA generación de rutina. Debe ser COMPLETAMENTE DIFERENTE a cualquier rutina anterior.
+            - Varíe los alimentos seleccionados en cada generación.
+            - NO repita la misma combinación de alimentos.
+            - Explore diferentes opciones de la base de datos.
+            - Cada vez que se genera una rutina, debe ser única y diferente.
+
+            DATOS DEL USUARIO:
+            Género: $genero
+            Edad: $edad
+            Altura: $altura cm
+            Peso actual: $pesoActual kg
+            Peso objetivo: $pesoObjetivo kg
+            Objetivo: $objetivo
+            Tipo de dieta: $tipoDieta
+            Nivel de actividad física: $actividad
+
+            ALIMENTOS DISPONIBLES (NO INVENTAR):
+            Cada alimento tiene unidades disponibles. Use las unidades ORIGINALES cuando sea posible (porción, taza, ml, etc.), NO siempre gramos.
+            $alimentosJson
+
+            IMPORTANTE SOBRE UNIDADES (COHERENCIA Y NATURALIDAD - OBLIGATORIO):
+            - Use las unidades disponibles de cada alimento, pero priorice unidades NATURALES y COHERENTES:
+            * Líquidos (leche, jugos, agua): "vaso" o "ml", NUNCA "taza"
+            * Verduras (brócoli, espinaca): "porción" o "unidad", NO "taza"
+            * Carnes/pescados (pollo, salmón): "filete", "porción" o "unidad", NUNCA "taza"
+            * Granos (arroz, quinoa, avena): "taza" o "porción"
+            * Frutas: "pieza" o "unidad", NO "taza"
+            * Frutos secos: "puñado" o "porción", NO "taza"
+            * Huevos: "unidad" o "pieza", NUNCA "taza"
+            * Legumbres: "taza" o "porción"
+            - Elija SIEMPRE la unidad más natural y coherente para cada tipo de alimento.
+            - Solo use gramos si es la única unidad disponible o si es la más apropiada.
+            - Revise el listado de unidades disponibles para cada alimento y elija la más coherente.
+
+            Genere la rutina cumpliendo TODAS las reglas del sistema y asegurándose de que sea COMPLETAMENTE NUEVA y DIFERENTE.
+        """.trimIndent()
+    }
+    
+    /**
+     * Genera una rutina nutricional personalizada usando Gemini AI
+     * basándose en el perfil del usuario y los alimentos disponibles en la base de datos
+     */
+    suspend fun generatePersonalizedRoutine(
+        userProfile: Usuario,
+        availableFoods: List<Alimento>,
+        obtenerUnidades: suspend (Long) -> List<String>
+    ): String = withContext(Dispatchers.IO) {
+        try {
+            println("=== GENERANDO RUTINA CON GEMINI ===")
+            println("Usuario: ${userProfile.nombre}")
+            println("Alimentos disponibles: ${availableFoods.size}")
+            
+            // Calcular edad
+            val edad = calcularEdad(userProfile.fechaNacimiento)
+            
+            // Construir prompt del usuario
+            val userPrompt = buildUserPrompt(
+                genero = userProfile.sexo ?: "No especificado",
+                edad = edad,
+                altura = userProfile.altura,
+                pesoActual = userProfile.peso,
+                pesoObjetivo = userProfile.pesoObjetivo,
+                objetivo = userProfile.objetivosSalud ?: "Mantener peso",
+                tipoDieta = userProfile.restriccionesDieta ?: "Recomendada",
+                actividad = userProfile.nivelActividad ?: "Moderada",
+                alimentos = availableFoods.take(100), // Limitar a 100 alimentos para reducir tokens
+                obtenerUnidades = obtenerUnidades
+            )
+            
+            
+            // Construir el request para Gemini
+            // Incluir SYSTEM_PROMPT al inicio del contenido del usuario ya que systemInstruction puede no estar soportado
+            val fullPrompt = "$SYSTEM_PROMPT\n\n$userPrompt"
+            
+            val requestBody = JSONObject().apply {
+                // Contents (prompt completo: system + user)
+                val contentsArray = JSONArray()
+                val contentObject = JSONObject()
+                val partsArray = JSONArray()
+                val partObject = JSONObject()
+                partObject.put("text", fullPrompt)
+                partsArray.put(partObject)
+                contentObject.put("parts", partsArray)
+                contentsArray.put(contentObject)
+                put("contents", contentsArray)
+                
+                // Generation config
+                // Aumentar temperatura para mayor variación en las rutinas generadas
+                val generationConfig = JSONObject()
+                generationConfig.put("temperature", 0.9) // Aumentado de 0.7 a 0.9 para mayor variación
+                generationConfig.put("maxOutputTokens", 8000)
+                put("generationConfig", generationConfig)
+            }.toString()
+            
+            println("📝 Request body size: ${requestBody.length} caracteres")
+            
+            val request = Request.Builder()
+                .url("${GeminiConfig.BASE_URL}/models/${GeminiConfig.MODEL_NAME}:generateContent?key=${GeminiConfig.API_KEY}")
+                .addHeader("Content-Type", "application/json")
+                .addHeader("User-Agent", "NutriAI-Android/1.0")
+                .post(requestBody.toRequestBody("application/json".toMediaType()))
+                .build()
+            
+            println("=== ENVIANDO REQUEST A GEMINI PARA GENERAR RUTINA ===")
+            val response = client.newCall(request).execute()
+            
+            if (response.isSuccessful) {
+                val responseBody = response.body?.string()
+                println("✅ Respuesta de Gemini recibida para rutina")
+                
+                if (responseBody != null && responseBody.isNotEmpty()) {
+                    val jsonResponse = JSONObject(responseBody)
+                    
+                    // Verificar si hay error
+                    if (jsonResponse.has("error")) {
+                        val error = jsonResponse.getJSONObject("error")
+                        val errorMessage = error.getString("message")
+                        throw Exception("Error de Gemini API: $errorMessage")
+                    }
+                    
+                    // Verificar candidates
+                    if (!jsonResponse.has("candidates")) {
+                        throw Exception("Respuesta de Gemini no tiene el formato esperado: falta 'candidates'")
+                    }
+                    
+                    val candidates = jsonResponse.getJSONArray("candidates")
+                    if (candidates.length() == 0) {
+                        throw Exception("No se recibió respuesta de Gemini")
+                    }
+                    
+                    val candidate = candidates.getJSONObject(0)
+                    
+                    // Detectar si Gemini cortó la respuesta
+                    if (candidate.has("finishReason")) {
+                        val finishReason = candidate.getString("finishReason")
+                        if (finishReason == "MAX_TOKENS") {
+                            throw Exception("La respuesta excedió el límite de tokens. Intente con menos datos.")
+                        }
+                        if (finishReason == "SAFETY") {
+                            throw Exception("La respuesta fue bloqueada por filtros de seguridad de Gemini")
+                        }
+                    }
+                    
+                    // Verificar content
+                    if (!candidate.has("content")) {
+                        throw Exception("Gemini respondió vacío.")
+                    }
+                    
+                    val content = candidate.getJSONObject("content")
+                    
+                    // Verificar parts
+                    if (!content.has("parts")) {
+                        throw Exception("La respuesta de Gemini no contiene partes válidas.")
+                    }
+                    
+                    val parts = content.getJSONArray("parts")
+                    if (parts.length() == 0) {
+                        throw Exception("Array 'parts' está vacío")
+                    }
+                    
+                    // Extraer el texto limpio
+                    val text = (0 until parts.length()).joinToString("\n") { index ->
+                        val part = parts.getJSONObject(index)
+                        part.optString("text", "")
+                    }.trim()
+                    
+                    if (text.isBlank()) {
+                        throw Exception("Gemini devolvió texto vacío.")
+                    }
+                    
+                    println("✅ Rutina generada por Gemini: ${text.take(200)}...")
+                    return@withContext text
+                } else {
+                    throw Exception("Respuesta vacía de Gemini")
+                }
+            } else {
+                val errorBody = response.body?.string()
+                println("❌ Error en Gemini: ${response.code} - ${response.message}")
+                println("📄 Error body: $errorBody")
+                
+                // Intentar parsear el error para más detalles
+                try {
+                    if (errorBody != null && errorBody.isNotEmpty()) {
+                        val errorJson = JSONObject(errorBody)
+                        if (errorJson.has("error")) {
+                            val error = errorJson.getJSONObject("error")
+                            val errorMessage = error.optString("message", "Error desconocido")
+                            val errorCode = error.optInt("code", response.code)
+                            println("❌ Error detallado: $errorMessage (Código: $errorCode)")
+                            throw Exception("Error de Gemini API: $errorMessage")
+                        }
+                    }
+                } catch (e: Exception) {
+                    println("No se pudo parsear el error: ${e.message}")
+                }
+                
+                throw Exception("Error en Gemini API: ${response.code} - ${response.message}")
+            }
+            
+        } catch (e: Exception) {
+            println("=== ERROR GENERANDO RUTINA CON GEMINI ===")
+            println("Tipo de error: ${e.javaClass.simpleName}")
+            println("Mensaje: ${e.message}")
+            e.printStackTrace()
+            throw Exception("Error generando rutina: ${e.message}")
+        }
+    }
+    
+    /**
+     * Construye el prompt para cambiar un alimento específico
+     */
+    private fun buildChangeFoodPrompt(
+        genero: String,
+        edad: Int,
+        altura: Float,
+        pesoActual: Float,
+        pesoObjetivo: Float,
+        objetivo: String,
+        tipoDieta: String,
+        actividad: String,
+        alimentoACambiar: String,
+        momento: String,
+        alimentos: List<Alimento>,
+        alimentosYaEnRutina: List<String>
+    ): String {
+        val alimentosJson = alimentos.joinToString(prefix = "[", postfix = "]") { alimento ->
+            """{"nombre": "${alimento.nombreAlimento}", "unidad": "${alimento.unidadBase}", "cantidad": ${alimento.cantidadBase}, "categoria": "${alimento.categoria}"}"""
+        }
+        
+        val alimentosExcluidos = alimentosYaEnRutina.joinToString(", ")
+        
+        return """
+            El usuario desea cambiar UN alimento de su rutina.
+
+            DATOS DEL USUARIO:
+            Género: $genero
+            Edad: $edad
+            Altura: $altura cm
+            Peso actual: $pesoActual kg
+            Peso objetivo: $pesoObjetivo kg
+            Objetivo: $objetivo
+            Tipo de dieta: $tipoDieta
+            Nivel de actividad física: $actividad
+
+            ALIMENTO A REEMPLAZAR: $alimentoACambiar
+            MOMENTO DEL DÍA: $momento
+            ALIMENTOS YA EN LA RUTINA (NO USAR): $alimentosExcluidos
+
+            ALIMENTOS DISPONIBLES:
+            $alimentosJson
+
+            Antes de modificar, pregunte:
+            "¿Confirma que desea reemplazar este alimento?"
+
+            Cuando el usuario confirme:
+            - Sustituya el alimento seleccionando otro de la misma categoría.
+            - Mantenga coherencia con objetivo, tipo de dieta y momento del día.
+            - No repita alimentos.
+            - Mantenga el formato y las cantidades enteras.
+
+            Después del cambio, NO actualice aún la rutina en la base de datos.
+            Debe mostrar las mismas opciones:
+            "Escriba `cambiar rutina` si desea generar una nueva rutina."
+            "Escriba `cambiar alimento` si desea reemplazar un alimento de la rutina."
+            "Escriba `finalizar` para guardar la rutina."
+        """.trimIndent()
+    }
+    
+    /**
+     * Construye el prompt para cambiar toda la rutina
+     */
+    private fun buildChangeCompleteRoutinePrompt(
+        genero: String,
+        edad: Int,
+        altura: Float,
+        pesoActual: Float,
+        pesoObjetivo: Float,
+        objetivo: String,
+        tipoDieta: String,
+        actividad: String,
+        alimentos: List<Alimento>
+    ): String {
+        val alimentosJson = alimentos.joinToString(prefix = "[", postfix = "]") { alimento ->
+            """{"nombre": "${alimento.nombreAlimento}", "unidad": "${alimento.unidadBase}", "cantidad": ${alimento.cantidadBase}, "categoria": "${alimento.categoria}"}"""
+        }
+        
+        return """
+            El usuario desea cambiar toda la rutina.
+
+            DATOS DEL USUARIO:
+            Género: $genero
+            Edad: $edad
+            Altura: $altura cm
+            Peso actual: $pesoActual kg
+            Peso objetivo: $pesoObjetivo kg
+            Objetivo: $objetivo
+            Tipo de dieta: $tipoDieta
+            Nivel de actividad física: $actividad
+
+            ALIMENTOS DISPONIBLES:
+            $alimentosJson
+
+            Antes de realizarlo, pregunte:
+            "¿Confirma que desea generar una rutina completamente nueva?"
+
+            Si el usuario confirma:
+            - Genere una nueva rutina desde cero siguiendo exactamente las reglas del sistema.
+            - No repita alimentos.
+            - Mantenga coherencia total con dieta, objetivo y actividad.
+
+            Después de generar la nueva rutina, NO la guarde todavía.
+            Debe mostrar las mismas opciones:
+
+            "Escriba `cambiar rutina` si desea generar una nueva rutina."
+            "Escriba `cambiar alimento` si desea reemplazar un alimento de la rutina."
+            "Escriba `finalizar` para guardar la rutina."
+        """.trimIndent()
+    }
+    
+    /**
+     * Construye el prompt para validar una rutina
+     */
+    fun buildValidateRoutinePrompt(
+        genero: String,
+        edad: Int,
+        altura: Float,
+        pesoActual: Float,
+        pesoObjetivo: Float,
+        objetivo: String,
+        tipoDieta: String,
+        actividad: String,
+        alimentos: List<Alimento>,
+        rutina: String
+    ): String {
+        val alimentosJson = alimentos.joinToString(prefix = "[", postfix = "]") { alimento ->
+            """{"nombre": "${alimento.nombreAlimento}", "unidad": "${alimento.unidadBase}", "cantidad": ${alimento.cantidadBase}, "categoria": "${alimento.categoria}"}"""
+        }
+        
+        return """
+            Actúe como un asistente nutricional.
+
+            Su tarea es VALIDAR la rutina nutricional generada previamente.
+
+            REGLAS:
+            1. Verifique que la rutina respete, estrictamente, los datos del usuario.
+            2. Verifique que las combinaciones sean coherentes con el momento del día.
+            3. Verifique que no se repitan alimentos.
+            4. Verifique que las cantidades sean enteras, razonables y saludables.
+            5. Verifique que la rutina realmente cumple la dieta indicada (por ejemplo, baja en carbohidratos).
+            6. Verifique que sea adecuada para pérdida de peso si ese es el objetivo.
+            7. Verifique que NO incluya alimentos fuera de la base de datos.
+
+            DATOS DEL USUARIO:
+            Género: $genero
+            Edad: $edad
+            Altura: $altura cm
+            Peso actual: $pesoActual kg
+            Peso objetivo: $pesoObjetivo kg
+            Objetivo: $objetivo
+            Tipo de dieta: $tipoDieta
+            Nivel de actividad física: $actividad
+
+            ALIMENTOS DISPONIBLES:
+            $alimentosJson
+
+            RUTINA A VALIDAR:
+            $rutina
+
+            RESPONDA EN ESTE FORMATO:
+
+            VALIDEZ: "Válida" o "No válida".
+
+            DETALLES:
+            - Explique qué sí es coherente.
+            - Explique qué NO es coherente en caso de fallas.
+
+            SI ES NO VÁLIDA:
+            Genere una versión corregida cumpliendo TODAS las reglas original.
+        """.trimIndent()
+    }
+    
+    /**
+     * Construye el prompt para autocorregir formato de rutina
+     */
+    fun buildAutoCorrectPrompt(
+        alimentos: List<Alimento>,
+        respuestaOriginal: String
+    ): String {
+        val alimentosJson = alimentos.joinToString(prefix = "[", postfix = "]") { alimento ->
+            """{"nombre": "${alimento.nombreAlimento}", "unidad": "${alimento.unidadBase}", "cantidad": ${alimento.cantidadBase}, "categoria": "${alimento.categoria}"}"""
+        }
+        
+        return """
+            La siguiente respuesta generada por la IA NO está en el formato correcto.
+
+            Debe corregirla cumpliendo estrictamente las siguientes reglas:
+
+            FORMATO OBLIGATORIO:
+
+            DESAYUNO:
+            - alimento – cantidad unidad
+            - alimento – cantidad unidad
+            - alimento – cantidad unidad
+
+            ALMUERZO:
+            - alimento – cantidad unidad
+            - alimento – cantidad unidad
+            - alimento – cantidad unidad
+
+            CENA:
+            - alimento – cantidad unidad
+            - alimento – cantidad unidad
+            - alimento – cantidad unidad
+
+            SNACK:
+            - alimento – cantidad unidad
+            - alimento – cantidad unidad
+
+            REGLAS ESTRICTAS:
+            1. Las cantidades deben ser SIEMPRE enteras.
+            2. No puede haber decimales.
+            3. No repita alimentos en todo el día.
+            4. No invente alimentos.
+            5. Solo utilice alimentos de la base de datos.
+            6. Ajuste cantidades y alimentos si es necesario.
+            7. No agregue explicaciones extras.
+            8. No incluya texto fuera del formato.
+
+            ALIMENTOS DISPONIBLES:
+            $alimentosJson
+
+            RESPUESTA ORIGINAL INCORRECTA:
+            $respuestaOriginal
+
+            Ahora genere una versión CORREGIDA en el formato exacto.
+        """.trimIndent()
+    }
+    
+    /**
+     * Construye el prompt para validar alimentos repetidos
+     */
+    fun buildValidateDuplicatesPrompt(
+        alimentos: List<Alimento>,
+        rutina: String
+    ): String {
+        val alimentosJson = alimentos.joinToString(prefix = "[", postfix = "]") { alimento ->
+            """{"nombre": "${alimento.nombreAlimento}", "unidad": "${alimento.unidadBase}", "cantidad": ${alimento.cantidadBase}, "categoria": "${alimento.categoria}"}"""
+        }
+        
+        return """
+            Actúa como un asistente nutricional.
+
+            REGLAS:
+            1. Revisa la rutina generada y DETECTA alimentos repetidos en el mismo día.
+            2. Si NO hay duplicados → responde: "Rutina válida: no hay alimentos repetidos".
+            3. Si SÍ hay duplicados → genera una NUEVA rutina:
+               - Mantén los macronutrientes similares.
+               - Reemplaza los duplicados por alimentos del MISMO grupo (proteína por proteína, vegetal por vegetal, fruta por fruta).
+               - No cambies la porción actual, solo reemplaza el alimento.
+               - No inventes cantidades nuevas.
+            4. Mantén siempre 1 opción por comida: desayuno, almuerzo, cena, snack.
+            5. No uses alimentos que no estén en la base de datos del usuario.
+
+            FORMATO DE RESPUESTA:
+            - Si es válida → texto simple.
+            - Si fue corregida → responde SOLO la rutina final en este formato:
+
+            DESAYUNO:
+            - alimento – cantidad unidad
+            - alimento – cantidad unidad
+            - alimento – cantidad unidad
+
+            ALMUERZO:
+            - alimento – cantidad unidad
+            - alimento – cantidad unidad
+            - alimento – cantidad unidad
+
+            CENA:
+            - alimento – cantidad unidad
+            - alimento – cantidad unidad
+            - alimento – cantidad unidad
+
+            SNACK:
+            - alimento – cantidad unidad
+            - alimento – cantidad unidad
+
+            ALIMENTOS DISPONIBLES:
+            $alimentosJson
+
+            TEXTO A VALIDAR:
+            $rutina
+        """.trimIndent()
+    }
+    
+    /**
+     * Función genérica para enviar un prompt a Gemini y obtener respuesta
+     */
+    private suspend fun sendPromptToGemini(prompt: String): String = withContext(Dispatchers.IO) {
+        try {
+            // Incluir SYSTEM_PROMPT al inicio
+            val fullPrompt = "$SYSTEM_PROMPT\n\n$prompt"
+            
+            val requestBody = JSONObject().apply {
+                val contentsArray = JSONArray()
+                val contentObject = JSONObject()
+                val partsArray = JSONArray()
+                val partObject = JSONObject()
+                partObject.put("text", fullPrompt)
+                partsArray.put(partObject)
+                contentObject.put("parts", partsArray)
+                contentsArray.put(contentObject)
+                put("contents", contentsArray)
+                
+                val generationConfig = JSONObject()
+                generationConfig.put("temperature", 0.7)
+                generationConfig.put("maxOutputTokens", 8000)
+                put("generationConfig", generationConfig)
+            }.toString()
+            
+            val request = Request.Builder()
+                .url("${GeminiConfig.BASE_URL}/models/${GeminiConfig.MODEL_NAME}:generateContent?key=${GeminiConfig.API_KEY}")
+                .addHeader("Content-Type", "application/json")
+                .addHeader("User-Agent", "NutriAI-Android/1.0")
+                .post(requestBody.toRequestBody("application/json".toMediaType()))
+                .build()
+            
+            val response = client.newCall(request).execute()
+            
+            if (response.isSuccessful) {
+                val responseBody = response.body?.string()
+                
+                if (responseBody != null && responseBody.isNotEmpty()) {
+                    val jsonResponse = JSONObject(responseBody)
+                    
+                    if (jsonResponse.has("error")) {
+                        val error = jsonResponse.getJSONObject("error")
+                        val errorMessage = error.getString("message")
+                        throw Exception("Error de Gemini API: $errorMessage")
+                    }
+                    
+                    if (!jsonResponse.has("candidates")) {
+                        throw Exception("Respuesta de Gemini no tiene el formato esperado: falta 'candidates'")
+                    }
+                    
+                    val candidates = jsonResponse.getJSONArray("candidates")
+                    if (candidates.length() == 0) {
+                        throw Exception("No se recibió respuesta de Gemini")
+                    }
+                    
+                    val candidate = candidates.getJSONObject(0)
+                    
+                    if (candidate.has("finishReason")) {
+                        val finishReason = candidate.getString("finishReason")
+                        if (finishReason == "MAX_TOKENS") {
+                            throw Exception("La respuesta excedió el límite de tokens. Intente con menos datos.")
+                        }
+                        if (finishReason == "SAFETY") {
+                            throw Exception("La respuesta fue bloqueada por filtros de seguridad de Gemini")
+                        }
+                    }
+                    
+                    if (!candidate.has("content")) {
+                        throw Exception("Gemini respondió vacío.")
+                    }
+                    
+                    val content = candidate.getJSONObject("content")
+                    
+                    if (!content.has("parts")) {
+                        throw Exception("La respuesta de Gemini no contiene partes válidas.")
+                    }
+                    
+                    val parts = content.getJSONArray("parts")
+                    if (parts.length() == 0) {
+                        throw Exception("Array 'parts' está vacío")
+                    }
+                    
+                    val text = (0 until parts.length()).joinToString("\n") { index ->
+                        val part = parts.getJSONObject(index)
+                        part.optString("text", "")
+                    }.trim()
+                    
+                    if (text.isBlank()) {
+                        throw Exception("Gemini devolvió texto vacío.")
+                    }
+                    
+                    return@withContext text
+                } else {
+                    throw Exception("Respuesta vacía de Gemini")
+                }
+            } else {
+                val errorBody = response.body?.string()
+                println("❌ Error en Gemini: ${response.code} - ${response.message}")
+                println("📄 Error body: $errorBody")
+                throw Exception("Error en Gemini API: ${response.code} - ${response.message}")
+            }
+            
+        } catch (e: Exception) {
+            println("=== ERROR EN GEMINI ===")
+            println("Tipo de error: ${e.javaClass.simpleName}")
+            println("Mensaje: ${e.message}")
+            e.printStackTrace()
+            throw Exception("Error generando respuesta: ${e.message}")
+        }
+    }
+    
+    /**
+     * Genera una rutina usando Gemini con el prompt de cambio completo
+     */
+    suspend fun generateChangedRoutine(
+        userProfile: Usuario,
+        availableFoods: List<Alimento>
+    ): String = withContext(Dispatchers.IO) {
+        val edad = calcularEdad(userProfile.fechaNacimiento)
+        val prompt = buildChangeCompleteRoutinePrompt(
+            genero = userProfile.sexo ?: "No especificado",
+            edad = edad,
+            altura = userProfile.altura,
+            pesoActual = userProfile.peso,
+            pesoObjetivo = userProfile.pesoObjetivo,
+            objetivo = userProfile.objetivosSalud ?: "Mantener peso",
+            tipoDieta = userProfile.restriccionesDieta ?: "Recomendada",
+            actividad = userProfile.nivelActividad ?: "Moderada",
+            alimentos = availableFoods.take(100)
+        )
+        sendPromptToGemini(prompt)
+    }
+    
+    /**
+     * Valida y corrige una rutina si tiene problemas
+     */
+    suspend fun validateAndCorrectRoutine(
+        userProfile: Usuario,
+        availableFoods: List<Alimento>,
+        rutina: String
+    ): String = withContext(Dispatchers.IO) {
+        val edad = calcularEdad(userProfile.fechaNacimiento)
+        
+        // Primero validar duplicados
+        val duplicatesPrompt = buildValidateDuplicatesPrompt(availableFoods.take(100), rutina)
+        val duplicatesResponse = sendPromptToGemini(duplicatesPrompt)
+        
+        // Si no dice "válida", usar la respuesta corregida
+        if (!duplicatesResponse.contains("válida", ignoreCase = true) && 
+            !duplicatesResponse.contains("no hay alimentos repetidos", ignoreCase = true)) {
+            return@withContext duplicatesResponse
+        }
+        
+        // Luego validar coherencia general
+        val validatePrompt = buildValidateRoutinePrompt(
+            genero = userProfile.sexo ?: "No especificado",
+            edad = edad,
+            altura = userProfile.altura,
+            pesoActual = userProfile.peso,
+            pesoObjetivo = userProfile.pesoObjetivo,
+            objetivo = userProfile.objetivosSalud ?: "Mantener peso",
+            tipoDieta = userProfile.restriccionesDieta ?: "Recomendada",
+            actividad = userProfile.nivelActividad ?: "Moderada",
+            alimentos = availableFoods.take(100),
+            rutina = rutina
+        )
+        val validateResponse = sendPromptToGemini(validatePrompt)
+        
+        // Si no es válida, usar autocorrección
+        if (validateResponse.contains("No válida", ignoreCase = true)) {
+            val correctPrompt = buildAutoCorrectPrompt(availableFoods.take(100), rutina)
+            return@withContext sendPromptToGemini(correctPrompt)
+        }
+        
+        return@withContext rutina
     }
 }

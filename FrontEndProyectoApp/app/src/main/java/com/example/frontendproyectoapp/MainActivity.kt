@@ -34,6 +34,33 @@ import android.provider.Settings
 import android.Manifest
 import androidx.activity.result.contract.ActivityResultContracts
 
+/**
+ * Actividad principal de la aplicación NutriAI
+ * 
+ * Esta clase es el punto de entrada de la aplicación Android y se encarga de:
+ * 
+ * 1. **Inicialización de configuración:**
+ *    - Configuración de Gemini API (clave API para inteligencia artificial)
+ *    - Creación de canales de notificaciones
+ *    - Configuración de permisos necesarios
+ * 
+ * 2. **Gestión de permisos:**
+ *    - Permisos de notificaciones (Android 13+)
+ *    - Permisos de alarmas exactas (Android 12+)
+ *    - Manejo de denegación de permisos
+ * 
+ * 3. **Configuración de la UI:**
+ *    - Inicialización de Jetpack Compose
+ *    - Configuración del tema (claro/oscuro)
+ *    - Configuración de navegación
+ *    - Inicialización de ViewModels
+ * 
+ * 4. **Sistema de recordatorios:**
+ *    - Canal para notificaciones de recordatorios nutricionales
+ *    - Configuración de alarmas para recordatorios programados
+ * 
+ * @author [Tu nombre]
+ */
 class MainActivity : ComponentActivity() {
 
     private val permissionLauncher = registerForActivityResult(

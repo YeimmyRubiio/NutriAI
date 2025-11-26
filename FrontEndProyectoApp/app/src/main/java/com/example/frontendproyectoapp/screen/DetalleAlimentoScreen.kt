@@ -40,7 +40,14 @@ import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DetalleAlimentoScreen(idAlimento: Long, navController: NavHostController) {
+fun DetalleAlimentoScreen(
+    idAlimento: Long,
+    navController: NavHostController,
+    cantidadInicial: String = "",
+    unidadInicial: String = "",
+    momentoInicial: String = "",
+    desdeRutina: Boolean = false
+) {
     val context = LocalContext.current
     val application = context.applicationContext as Application
     val viewModel: DetalleAlimentoViewModel = viewModel(
@@ -66,7 +73,11 @@ fun DetalleAlimentoScreen(idAlimento: Long, navController: NavHostController) {
         navController = navController,
         viewModel = viewModel,
         onBackClick = { navController.popBackStack() },
-        alimentoViewModel = alimentoViewModel
+        alimentoViewModel = alimentoViewModel,
+        cantidadInicial = cantidadInicial,
+        unidadInicial = unidadInicial,
+        momentoInicial = momentoInicial,
+        desdeRutina = desdeRutina
     )
 
 }
@@ -78,14 +89,31 @@ fun DetalleAlimentoScreenContent(
     navController: NavHostController,
     viewModel: DetalleAlimentoViewModel,
     onBackClick: () -> Unit = {},
-    alimentoViewModel: AlimentoViewModel
+    alimentoViewModel: AlimentoViewModel,
+    cantidadInicial: String = "",
+    unidadInicial: String = "",
+    momentoInicial: String = "",
+    desdeRutina: Boolean = false
 ) {
     val focusManager = LocalFocusManager.current
-    var cantidad by remember { mutableStateOf("1") }
-    var unidadSeleccionada by remember { mutableStateOf("Unidad de medida") }
+    
+    // Formatear cantidad inicial a 1 decimal si viene desde rutina
+    val cantidadFormateada = if (cantidadInicial.isNotBlank()) {
+        try {
+            val cantidadFloat = cantidadInicial.replace(",", ".").toFloatOrNull() ?: 0f
+            "%.1f".format(cantidadFloat).replace(",", ".")
+        } catch (e: Exception) {
+            cantidadInicial
+        }
+    } else {
+        "1"
+    }
+    
+    var cantidad by remember { mutableStateOf(cantidadFormateada) }
+    var unidadSeleccionada by remember { mutableStateOf(if (unidadInicial.isNotBlank()) unidadInicial else "Unidad de medida") }
     var unidadExpanded by remember { mutableStateOf(false) }
 
-    var momentoSeleccionado by remember { mutableStateOf("Momento del día") }
+    var momentoSeleccionado by remember { mutableStateOf(if (momentoInicial.isNotBlank()) momentoInicial else "Momento del día") }
     var momentoExpanded by remember { mutableStateOf(false) }
 
     val momentos = listOf("Desayuno", "Almuerzo", "Cena", "Snack")
@@ -98,11 +126,28 @@ fun DetalleAlimentoScreenContent(
         return
     }
 
-    val cantidadFloat = cantidad.toFloatOrNull() ?: 1f
-    val totalCalorias = (alimento.calorias * cantidadFloat).roundToInt()
-    val totalProteinas = alimento.proteinas * cantidadFloat
-    val totalCarbs = alimento.carbohidratos * cantidadFloat
-    val totalGrasas = alimento.grasas * cantidadFloat
+    // La cantidad puede venir en diferentes unidades (gramos, porción, unidad, etc.)
+    // Si la unidad es "gramos", usamos la cantidad directamente
+    // Si la unidad es otra, necesitamos convertir a gramos usando cantidadBase del alimento
+    val cantidadFloat = cantidad.replace(",", ".").toFloatOrNull() ?: 1f
+    val unidadLower = unidadSeleccionada.lowercase()
+    
+    // Convertir cantidad a gramos si es necesario
+    val cantidadEnGramos = if (unidadLower.contains("gramo") || unidadLower == "g") {
+        // Ya está en gramos
+        cantidadFloat
+    } else {
+        // Convertir a gramos usando cantidadBase (por ejemplo, si es "porción", multiplicar por cantidadBase)
+        cantidadFloat * alimento.cantidadBase
+    }
+    
+    // Los valores nutricionales están por 100g, dividir por 100 para obtener el factor correcto
+    val factorNutricional = cantidadEnGramos / 100f
+    
+    val totalCalorias = (alimento.calorias * factorNutricional).roundToInt()
+    val totalProteinas = alimento.proteinas * factorNutricional
+    val totalCarbs = alimento.carbohidratos * factorNutricional
+    val totalGrasas = alimento.grasas * factorNutricional
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -175,16 +220,20 @@ fun DetalleAlimentoScreenContent(
             ) {
                 BasicTextField(
                     value = cantidad,
-                    onValueChange = { input -> cantidad = input.filter { it.isDigit() || it == '.' } },
+                    onValueChange = { if (!desdeRutina) cantidad = it.filter { it.isDigit() || it == '.' } },
+                    readOnly = desdeRutina,
+                    enabled = !desdeRutina,
                     keyboardOptions = KeyboardOptions.Default.copy(keyboardType = KeyboardType.Number),
                     singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(
+                        color = if (desdeRutina) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
+                    ),
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 16.dp)
                 ) { innerTextField ->
                     Box {
-                        if (cantidad.isEmpty()) {
+                        if (cantidad.isEmpty() && !desdeRutina) {
                             Text("Cantidad", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         innerTextField()
@@ -198,11 +247,14 @@ fun DetalleAlimentoScreenContent(
                 label = "Unidad de medida",
                 selected = unidadSeleccionada,
                 options = unidadesDisponibles,
-                expanded = unidadExpanded,
-                onExpandedChange = { unidadExpanded = it },
+                expanded = unidadExpanded && !desdeRutina,
+                onExpandedChange = { if (!desdeRutina) unidadExpanded = it },
+                enabled = !desdeRutina,
                 onItemSelected = {
-                    unidadSeleccionada = it
-                    unidadExpanded = false
+                    if (!desdeRutina) {
+                        unidadSeleccionada = it
+                        unidadExpanded = false
+                    }
                 }
             )
 
@@ -212,18 +264,21 @@ fun DetalleAlimentoScreenContent(
                 label = "Momento del día",
                 selected = momentoSeleccionado,
                 options = momentos,
-                expanded = momentoExpanded,
-                onExpandedChange = { momentoExpanded = it },
+                expanded = momentoExpanded && !desdeRutina,
+                onExpandedChange = { if (!desdeRutina) momentoExpanded = it },
+                enabled = !desdeRutina,
                 onItemSelected = {
-                    momentoSeleccionado = it
-                    momentoExpanded = false
+                    if (!desdeRutina) {
+                        momentoSeleccionado = it
+                        momentoExpanded = false
+                    }
                 }
             )
 
             Spacer(Modifier.height(16.dp))
             Button(
                 onClick = {
-                    if (unidadSeleccionada.isNotBlank() && cantidadFloat > 0f) {
+                    if (unidadSeleccionada.isNotBlank() && cantidadFloat > 0f && !desdeRutina) {
                         viewModel.registrarAlimento(
                             idAlimento = alimento.idAlimento,
                             cantidad = cantidadFloat,
@@ -233,10 +288,17 @@ fun DetalleAlimentoScreenContent(
                         navController.popBackStack()
                     }
                 },
+                enabled = !desdeRutina && unidadSeleccionada != "Unidad de medida" && momentoSeleccionado != "Momento del día",
                 modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
             ) {
-                Text("Ingresar a $momentoSeleccionado", color = MaterialTheme.colorScheme.onPrimary)
+                Text(
+                    if (desdeRutina) "Vista desde rutina (solo lectura)" else "Ingresar a $momentoSeleccionado",
+                    color = if (desdeRutina) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onPrimary
+                )
             }
         }
     }

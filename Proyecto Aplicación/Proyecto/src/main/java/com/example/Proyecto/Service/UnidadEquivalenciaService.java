@@ -5,7 +5,10 @@ import com.example.Proyecto.Model.Alimento;
 import com.example.Proyecto.Model.UnidadEquivalencia;
 import com.example.Proyecto.Repository.AlimentoRepository;
 import com.example.Proyecto.Repository.UnidadEquivalenciaRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,6 +23,9 @@ public class UnidadEquivalenciaService {
 
     @Autowired
     public AlimentoRepository alimentoRepository;
+    
+    @PersistenceContext
+    private EntityManager entityManager;
 
     public List<UnidadEquivalencia> listarUnidadEquivalencia(){
         // Validacion para intentar obtener la lista de las equivalencias de las unidades
@@ -96,7 +102,7 @@ public class UnidadEquivalenciaService {
         }
     }
 
-    @Transactional
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
     public UnidadEquivalencia crearOActualizarEquivalencia(UnidadEquivalenciaDTO dto) {
         Alimento alimento = alimentoRepository.findById(dto.getIdAlimento())
                 .orElseThrow(() -> new RuntimeException("Alimento no encontrado"));
@@ -104,16 +110,76 @@ public class UnidadEquivalenciaService {
         String origen = dto.getUnidadOrigen().toLowerCase();
         String destino = dto.getUnidadDestino().toLowerCase();
 
+        // Buscar la equivalencia existente
         Optional<UnidadEquivalencia> existente = unidadEquivalenciaRepository
                 .findByAlimentoAndUnidadOrigenAndUnidadDestino(alimento, origen, destino);
 
-        UnidadEquivalencia equivalencia = existente.orElseGet(UnidadEquivalencia::new);
-
-        equivalencia.setAlimento(alimento);
-        equivalencia.setUnidadOrigen(origen);
-        equivalencia.setUnidadDestino(destino);
-        equivalencia.setFactorConversion(dto.getFactorConversion());
-
-        return unidadEquivalenciaRepository.save(equivalencia);
+        if (existente.isPresent()) {
+            // Si existe, actualizar el factor si es necesario y retornar
+            UnidadEquivalencia equivalencia = existente.get();
+            equivalencia.setFactorConversion(dto.getFactorConversion());
+            return unidadEquivalenciaRepository.save(equivalencia);
+        } else {
+            // Si no existe, intentar crear una nueva
+            // IMPORTANTE: Asegurarse de que el ID sea null para que Hibernate lo genere automáticamente
+            try {
+                UnidadEquivalencia nuevaEquivalencia = new UnidadEquivalencia();
+                // CRÍTICO: NO asignar el ID manualmente - debe ser null para que se genere automáticamente
+                nuevaEquivalencia.setIdUnidad(null); // Asegurar que el ID sea null
+                nuevaEquivalencia.setAlimento(alimento);
+                nuevaEquivalencia.setUnidadOrigen(origen);
+                nuevaEquivalencia.setUnidadDestino(destino);
+                nuevaEquivalencia.setFactorConversion(dto.getFactorConversion());
+                return unidadEquivalenciaRepository.save(nuevaEquivalencia);
+            } catch (org.springframework.dao.DataIntegrityViolationException e) {
+                // Limpiar la sesión de Hibernate después del error
+                entityManager.clear();
+                
+                // Si falla por clave duplicada (condición de carrera), buscar de nuevo
+                // REQUIRES_NEW crea una nueva transacción limpia, así que podemos buscar de nuevo
+                Optional<UnidadEquivalencia> equivalenciaRecuperada = unidadEquivalenciaRepository
+                        .findByAlimentoAndUnidadOrigenAndUnidadDestino(alimento, origen, destino);
+                if (equivalenciaRecuperada.isPresent()) {
+                    // Si ahora existe, actualizar el factor y retornar
+                    UnidadEquivalencia equivalencia = equivalenciaRecuperada.get();
+                    equivalencia.setFactorConversion(dto.getFactorConversion());
+                    return unidadEquivalenciaRepository.save(equivalencia);
+                } else {
+                    // Si aún no existe después del error, lanzar excepción
+                    throw new RuntimeException("Error al crear equivalencia de unidad después de intento fallido. " +
+                            "La equivalencia no existe y no se pudo crear. " + e.getMessage(), e);
+                }
+            } catch (org.hibernate.AssertionFailure e) {
+                // Limpiar la sesión de Hibernate después del error
+                entityManager.clear();
+                
+                // Si Hibernate falla por sesión inválida, buscar de nuevo en una nueva transacción
+                Optional<UnidadEquivalencia> equivalenciaRecuperada = unidadEquivalenciaRepository
+                        .findByAlimentoAndUnidadOrigenAndUnidadDestino(alimento, origen, destino);
+                if (equivalenciaRecuperada.isPresent()) {
+                    UnidadEquivalencia equivalencia = equivalenciaRecuperada.get();
+                    equivalencia.setFactorConversion(dto.getFactorConversion());
+                    return unidadEquivalenciaRepository.save(equivalencia);
+                } else {
+                    throw new RuntimeException("Error de sesión de Hibernate al crear equivalencia: " + e.getMessage(), e);
+                }
+            } catch (Exception e) {
+                // Limpiar la sesión de Hibernate después de cualquier error
+                entityManager.clear();
+                
+                // Si es un error de integridad de datos, buscar de nuevo
+                if (e.getCause() instanceof org.springframework.dao.DataIntegrityViolationException ||
+                    e instanceof org.springframework.dao.DataIntegrityViolationException) {
+                    Optional<UnidadEquivalencia> equivalenciaRecuperada = unidadEquivalenciaRepository
+                            .findByAlimentoAndUnidadOrigenAndUnidadDestino(alimento, origen, destino);
+                    if (equivalenciaRecuperada.isPresent()) {
+                        UnidadEquivalencia equivalencia = equivalenciaRecuperada.get();
+                        equivalencia.setFactorConversion(dto.getFactorConversion());
+                        return unidadEquivalenciaRepository.save(equivalencia);
+                    }
+                }
+                throw new RuntimeException("Error inesperado al crear equivalencia de unidad: " + e.getMessage(), e);
+            }
+        }
     }
 }

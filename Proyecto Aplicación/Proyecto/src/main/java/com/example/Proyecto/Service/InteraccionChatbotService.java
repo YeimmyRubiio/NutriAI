@@ -10,11 +10,36 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 
+/**
+ * Servicio que contiene la lógica de negocio para gestionar las interacciones del chatbot
+ * 
+ * Este servicio actúa como capa intermedia entre el controlador y el repositorio,
+ * proporcionando validaciones y manejo de errores antes de realizar operaciones en la base de datos.
+ * 
+ * Funcionalidades principales:
+ * - Listar todas las interacciones
+ * - Buscar interacciones por ID
+ * - Guardar nuevas interacciones con validación
+ * - Actualizar interacciones existentes
+ * - Eliminar interacciones
+ * - Obtener historial de interacciones por sesión
+ * - Filtrar interacciones por fecha y tipo
+ * 
+ * @author [Tu nombre]
+ */
 @Service
 public class InteraccionChatbotService {
+    
+    // Repositorio para acceder a la base de datos
     @Autowired
     public InteraccionChatbotRepository interaccionChatbotRepository;
 
+    /**
+     * Lista todas las interacciones del chatbot registradas en el sistema
+     * 
+     * @return Lista de todas las interacciones del chatbot
+     * @throws RuntimeException Si ocurre un error al consultar la base de datos
+     */
     public List<InteraccionChatbot> listarInteraccionesChatbot(){
         // Validacion para intentar obtener la lista de Interacciones del Chatbot
         try {
@@ -43,19 +68,36 @@ public class InteraccionChatbotService {
         }
     }
 
+    /**
+     * Guarda una nueva interacción del chatbot en la base de datos
+     * 
+     * Valida que todos los campos obligatorios estén presentes:
+     * - consultaUsuario: La pregunta o mensaje del usuario
+     * - respuestaIA: La respuesta generada por la IA
+     * - timestamp: Fecha y hora de la interacción
+     * 
+     * @param interaccionChatbot Objeto con los datos de la interacción a guardar
+     * @return La interacción guardada con su ID generado
+     * @throws IllegalArgumentException Si faltan campos obligatorios o son inválidos
+     * @throws RuntimeException Si ocurre un error al guardar en la base de datos
+     */
     public InteraccionChatbot guardarInteraccionChatbot(InteraccionChatbot interaccionChatbot){
         try{
             if(interaccionChatbot==null){
                 throw new IllegalArgumentException("La Interaccion del Chatbot no puede ser nulo");
 
             }else{
+                // Validar que la consulta del usuario no esté vacía
                 if (interaccionChatbot.getConsultaUsuario() == null || interaccionChatbot.getConsultaUsuario().isEmpty()) {
                     throw new IllegalArgumentException("La consulta con el usuario es obligatorio.");
+                // Validar que la respuesta de la IA no esté vacía
                 }else if(interaccionChatbot.getRespuestaIA() == null || interaccionChatbot.getRespuestaIA().isEmpty()){
                     throw new IllegalArgumentException("La respuesta de IA es obligatoria.");
+                // Validar que el timestamp esté presente
                 }else if(interaccionChatbot.getTimestamp() == null){
                     throw new IllegalArgumentException("El timestamp de la interaccion es obligatoria.");
                 }
+                // Guardar en la base de datos
                 return  interaccionChatbotRepository.save(interaccionChatbot);
             }
         }catch (Exception e){

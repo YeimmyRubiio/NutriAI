@@ -114,7 +114,12 @@ fun RutinaScreenContent(viewModel: AlimentoViewModel, navController: NavHostCont
         chatbotViewModel.routineUpdated.collect { isUpdated ->
             if (isUpdated) {
                 println("=== RUTINA ACTUALIZADA DESDE CHATBOT ===")
+                // Esperar un momento para asegurar que la base de datos esté actualizada
+                kotlinx.coroutines.delay(300)
                 // Recargar la rutina cuando se actualiza
+                viewModel.cargarComidasRecientes()
+                // Esperar un poco más y recargar de nuevo para asegurar que todos los alimentos se carguen
+                kotlinx.coroutines.delay(500)
                 viewModel.cargarComidasRecientes()
                 // Limpiar la notificación
                 chatbotViewModel.clearRoutineUpdateNotification()
@@ -350,7 +355,19 @@ fun SeccionConsumoDiario(viewModel: AlimentoViewModel, navController: NavHostCon
                             alimento = registro.alimento,
                             esFavorito = viewModel.esFavorito(registro.alimento.idAlimento),
                             onClick = {
-                                navController.navigate("detalleAlimento/${registro.alimento.idAlimento}")
+                                // Pasar información del registro (cantidad, unidad, momento) para prellenar campos
+                                // Usar tamanoOriginal si está disponible, sino usar tamanoPorcion (convertido a gramos)
+                                // El backend guarda tamanoPorcion en gramos, pero queremos mostrar la cantidad original
+                                val cantidadFloat = if (registro.tamanoOriginal != null && registro.tamanoOriginal!! > 0f) {
+                                    registro.tamanoOriginal!!
+                                } else {
+                                    registro.tamanoPorcion
+                                }
+                                val cantidad = "%.1f".format(cantidadFloat).replace(",", ".")
+                                // Usar unidadOriginal si está disponible, sino usar unidadMedida (siempre "gramos" después de conversión)
+                                val unidad = registro.unidadOriginal ?: registro.unidadMedida
+                                val momento = registro.momentoDelDia
+                                navController.navigate("detalleAlimento/${registro.alimento.idAlimento}?cantidad=$cantidad&unidad=$unidad&momento=$momento&desdeRutina=true")
                             },
                             onToggleFavorito = {
                                 viewModel.toggleFavorito(registro.alimento)
